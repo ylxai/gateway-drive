@@ -9,7 +9,9 @@ import { getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service
 export const uploadRouter = Router()
 uploadRouter.use(requireAuth)
 
-async function selectAccount(userId: string, sizeBytes: bigint) {
+type UploadMeta = { fieldName: string; fileName: string; mimeType: string; sizeBytes: bigint; folderId?: string }
+
+async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByAccount = new Map<string, bigint>()) {
   const accounts = await prisma.connectedAccount.findMany({
     where: { userId, provider: 'google_drive', status: 'connected' },
     include: { storageAccount: true },
@@ -24,8 +26,9 @@ async function selectAccount(userId: string, sizeBytes: bigint) {
   })
 
   return fresh
-    .filter((account) => account.storageAccount?.availableBytes !== null && account.storageAccount?.availableBytes !== undefined && account.storageAccount.availableBytes >= sizeBytes)
-    .sort((a, b) => Number((b.storageAccount?.availableBytes ?? 0n) - (a.storageAccount?.availableBytes ?? 0n)))[0]
+    .map((account) => ({ account, availableBytes: (account.storageAccount?.availableBytes ?? 0n) - (reservedBytesByAccount.get(account.id) ?? 0n) }))
+    .filter(({ availableBytes }) => availableBytes >= sizeBytes)
+    .sort((a, b) => Number(b.availableBytes - a.availableBytes))[0]?.account
 }
 
 uploadRouter.post('/', async (req: AuthRequest, res, next) => {
@@ -33,10 +36,15 @@ uploadRouter.post('/', async (req: AuthRequest, res, next) => {
     const contentType = req.headers['content-type']
     if (!contentType?.includes('multipart/form-data')) return res.status(400).json({ code: 'UPLOAD_INVALID_CONTENT_TYPE', message: 'multipart/form-data required.' })
 
-    const busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: env.MAX_UPLOAD_BYTES } })
+    const busboy = Busboy({ headers: req.headers, limits: { files: 25, fileSize: env.MAX_UPLOAD_BYTES } })
     const fields: { sizeBytes?: bigint; fileName?: string; mimeType?: string; folderId?: string } = {}
+    let batchMeta: UploadMeta[] | null = null
     let responded = false
     let fileSeen = false
+    const reservedBytesByAccount = new Map<string, bigint>()
+    const completed: Array<Record<string, unknown>> = []
+    const failed: Array<{ fileName: string; code: string; message: string }> = []
+    const pendingUploads: Array<Promise<void>> = []
 
     const fail = async (status: number, code: string, message: string) => {
       if (responded) return
@@ -46,28 +54,48 @@ uploadRouter.post('/', async (req: AuthRequest, res, next) => {
       return res.status(status).json({ code, message })
     }
 
-    busboy.on('field', (name, value) => {
-      if (name === 'sizeBytes') fields.sizeBytes = BigInt(value)
-      if (name === 'fileName') fields.fileName = value
-      if (name === 'mimeType') fields.mimeType = value
-      if (name === 'folderId') fields.folderId = value
-    })
+    const parseBatchMeta = (value: string) => JSON.parse(value).map((item: { fieldName: string; fileName: string; mimeType: string; sizeBytes: string | number; folderId?: string }) => ({
+      fieldName: item.fieldName,
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+      sizeBytes: BigInt(item.sizeBytes),
+      folderId: item.folderId,
+    })) as UploadMeta[]
 
-    busboy.on('file', async (_name, fileStream, info) => {
-      fileSeen = true
+    const metaForFile = (fieldName: string, info: { filename: string; mimeType: string }) => {
+      if (batchMeta) return batchMeta.find((item) => item.fieldName === fieldName)
+      const sizeBytes = fields.sizeBytes
+      if (!sizeBytes) return null
+      return { fieldName, sizeBytes, fileName: fields.fileName || info.filename, mimeType: fields.mimeType || info.mimeType || 'application/octet-stream', folderId: fields.folderId }
+    }
+
+    const uploadOne = async (fieldName: string, fileStream: NodeJS.ReadableStream, info: { filename: string; mimeType: string }) => {
+      const meta = metaForFile(fieldName, info)
+      const fileName = meta?.fileName || info.filename
       try {
-        const sizeBytes = fields.sizeBytes
-        const fileName = fields.fileName || info.filename
-        const mimeType = fields.mimeType || info.mimeType || 'application/octet-stream'
-        if (!sizeBytes || sizeBytes <= 0n) return fail(400, 'UPLOAD_SIZE_REQUIRED', 'sizeBytes field must be sent before file field.')
-        if (sizeBytes > BigInt(env.MAX_UPLOAD_BYTES)) return fail(413, 'UPLOAD_TOO_LARGE', 'File exceeds max upload size.')
+        if (!meta?.sizeBytes || meta.sizeBytes <= 0n) {
+          fileStream.resume()
+          failed.push({ fileName, code: 'UPLOAD_SIZE_REQUIRED', message: 'sizeBytes field must be sent before file field.' })
+          return
+        }
+        if (meta.sizeBytes > BigInt(env.MAX_UPLOAD_BYTES)) {
+          fileStream.resume()
+          failed.push({ fileName, code: 'UPLOAD_TOO_LARGE', message: 'File exceeds max upload size.' })
+          return
+        }
 
-        const account = await selectAccount(req.user!.id, sizeBytes)
-        if (!account) return fail(409, 'NO_ACCOUNT_WITH_ENOUGH_SPACE', 'No connected Google Drive account has enough space for this upload.')
-        const folderId = fields.folderId || null
+        const account = await selectAccount(req.user!.id, meta.sizeBytes, reservedBytesByAccount)
+        if (!account) {
+          fileStream.resume()
+          failed.push({ fileName, code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: 'No connected Google Drive account has enough space for this upload.' })
+          return
+        }
+        reservedBytesByAccount.set(account.id, (reservedBytesByAccount.get(account.id) ?? 0n) + meta.sizeBytes)
+
+        const folderId = meta.folderId || null
         if (folderId) await prisma.folder.findFirstOrThrow({ where: { id: folderId, userId: req.user!.id, deletedAt: null } })
 
-        const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, fileName, mimeType, sizeBytes, status: 'uploading' } })
+        const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' } })
         const auth = await getAuthedGoogleClient(account)
         const drive = google.drive({ version: 'v3', auth })
 
@@ -78,13 +106,14 @@ uploadRouter.post('/', async (req: AuthRequest, res, next) => {
 
         const uploaded = await drive.files.create({
           requestBody: { name: fileName },
-          media: { mimeType, body: fileStream },
+          media: { mimeType: meta.mimeType, body: fileStream },
           fields: 'id,name,mimeType,size',
         })
 
-        if (streamedBytes !== sizeBytes) {
+        if (streamedBytes !== meta.sizeBytes) {
           await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'failed', errorMessage: 'Streamed byte count did not match declared size.' } })
-          return fail(400, 'UPLOAD_SIZE_MISMATCH', 'Streamed byte count did not match declared size.')
+          failed.push({ fileName, code: 'UPLOAD_SIZE_MISMATCH', message: 'Streamed byte count did not match declared size.' })
+          return
         }
 
         const file = await prisma.file.create({
@@ -95,24 +124,41 @@ uploadRouter.post('/', async (req: AuthRequest, res, next) => {
             provider: 'google_drive',
             providerFileId: uploaded.data.id ?? '',
             name: uploaded.data.name ?? fileName,
-            mimeType: uploaded.data.mimeType ?? mimeType,
-            sizeBytes,
+            mimeType: uploaded.data.mimeType ?? meta.mimeType,
+            sizeBytes: meta.sizeBytes,
           },
         })
         await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
         await syncGoogleQuota(account.id)
-
-        if (!responded) {
-          responded = true
-          return res.status(201).json({ file: { ...file, sizeBytes: file.sizeBytes.toString() } })
-        }
+        completed.push({ ...file, sizeBytes: file.sizeBytes.toString() })
       } catch (error) {
-        return next(error)
+        fileStream.resume()
+        failed.push({ fileName, code: 'UPLOAD_FAILED', message: error instanceof Error ? error.message : 'Upload failed' })
       }
+    }
+
+    busboy.on('field', (name, value) => {
+      if (name === 'sizeBytes') fields.sizeBytes = BigInt(value)
+      if (name === 'fileName') fields.fileName = value
+      if (name === 'mimeType') fields.mimeType = value
+      if (name === 'folderId') fields.folderId = value
+      if (name === 'filesMeta') batchMeta = parseBatchMeta(value)
+    })
+
+    busboy.on('file', (name, fileStream, info) => {
+      fileSeen = true
+      pendingUploads.push(uploadOne(name, fileStream, info))
     })
 
     busboy.on('finish', () => {
       if (!responded && !fileSeen) return fail(400, 'UPLOAD_FILE_REQUIRED', 'file field required.')
+      Promise.all(pendingUploads).then(() => {
+        if (responded) return
+        responded = true
+        if (completed.length === 0) return res.status(400).json({ code: failed[0]?.code ?? 'UPLOAD_FAILED', message: failed[0]?.message ?? 'Upload failed', failed })
+        if (!batchMeta && completed.length === 1 && failed.length === 0) return res.status(201).json({ file: completed[0] })
+        return res.status(201).json({ files: completed, failed })
+      }).catch(next)
     })
 
     req.pipe(busboy)

@@ -56,7 +56,7 @@ export function AllFilesPage() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [allFolders, setAllFolders] = useState<FolderItem[]>([])
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [selectedFolderId, setSelectedFolderId] = useState('')
   const [isUploadDragging, setIsUploadDragging] = useState(false)
   const [folderName, setFolderName] = useState('')
@@ -135,24 +135,24 @@ export function AllFilesPage() {
 
   async function uploadFile(event: FormEvent) {
     event.preventDefault()
-    if (!selectedFile) return
+    if (selectedFiles.length === 0) return
     setLoading(true)
     setMessage('')
     try {
       const form = new FormData()
-      form.append('sizeBytes', String(selectedFile.size))
-      form.append('fileName', selectedFile.name)
-      form.append('mimeType', selectedFile.type || 'application/octet-stream')
       const targetFolderId = activeFolderId || selectedFolderId
-      if (targetFolderId) form.append('folderId', targetFolderId)
-      form.append('file', selectedFile)
-      setUploadProgress({ open: true, fileName: selectedFile.name, percent: 0, status: 'uploading' })
-      await uploadWithProgress(form, (percent) => setUploadProgress((current) => ({ ...current, percent })))
+      const filesMeta = selectedFiles.map((file, index) => ({ fieldName: `file-${index}`, fileName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: String(file.size), folderId: targetFolderId || undefined }))
+      form.append('filesMeta', JSON.stringify(filesMeta))
+      selectedFiles.forEach((file, index) => form.append(`file-${index}`, file))
+      setUploadProgress({ open: true, fileName: selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} files`, percent: 0, status: 'uploading' })
+      const uploadResult = await uploadWithProgress(form, (percent) => setUploadProgress((current) => ({ ...current, percent })))
+      const uploadedCount = uploadResult.files?.length ?? (uploadResult.file ? 1 : selectedFiles.length)
+      const failedCount = uploadResult.failed?.length ?? 0
       setUploadProgress((current) => ({ ...current, percent: 100, status: 'done' }))
-      setSelectedFile(null)
+      setSelectedFiles([])
       setSelectedFolderId('')
       setUploadOpen(false)
-      setMessage('File uploaded to Google Drive.')
+      setMessage(failedCount > 0 ? `${uploadedCount} files uploaded. ${failedCount} failed.` : selectedFiles.length === 1 ? 'File uploaded to Google Drive.' : `${uploadedCount} files uploaded to Google Drive.`)
       await loadFiles()
       window.dispatchEvent(new Event('9drive:storage-changed'))
     } catch (error) {
@@ -163,9 +163,15 @@ export function AllFilesPage() {
     }
   }
 
-  function selectUploadFile(file: File | null | undefined) {
-    if (!file) return
-    setSelectedFile(file)
+  function selectUploadFiles(files: FileList | File[] | null | undefined) {
+    if (!files) return
+    const nextFiles = Array.from(files)
+    if (nextFiles.length === 0) return
+    setSelectedFiles(nextFiles)
+  }
+
+  function removeUploadFile(index: number) {
+    setSelectedFiles((files) => files.filter((_, fileIndex) => fileIndex !== index))
   }
 
   function handleUploadDrag(event: DragEvent<HTMLLabelElement>) {
@@ -173,11 +179,11 @@ export function AllFilesPage() {
     event.stopPropagation()
     if (event.type === 'dragenter' || event.type === 'dragover') setIsUploadDragging(true)
     if (event.type === 'dragleave' || event.type === 'drop') setIsUploadDragging(false)
-    if (event.type === 'drop') selectUploadFile(event.dataTransfer.files[0])
+    if (event.type === 'drop') selectUploadFiles(event.dataTransfer.files)
   }
 
   function uploadWithProgress(form: FormData, onProgress: (percent: number) => void) {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<{ file?: unknown; files?: unknown[]; failed?: unknown[] }>((resolve, reject) => {
       const request = new XMLHttpRequest()
       request.open('POST', `${API_URL}/uploads`)
       const token = getAccessToken()
@@ -187,7 +193,7 @@ export function AllFilesPage() {
         onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
       }
       request.onload = () => {
-        if (request.status >= 200 && request.status < 300) resolve()
+        if (request.status >= 200 && request.status < 300) resolve(JSON.parse(request.responseText || '{}') as { file?: unknown; files?: unknown[]; failed?: unknown[] })
         else {
           const error = JSON.parse(request.responseText || '{}') as { message?: string }
           reject(new Error(error.message ?? 'Upload failed'))
@@ -337,11 +343,11 @@ export function AllFilesPage() {
             <Upload className={isUploadDragging ? 'mx-auto h-8 w-8 text-blue-600' : 'mx-auto h-8 w-8 text-slate-500'} />
             <span className="text-sm font-extrabold text-slate-950">Drop file here or click to browse</span>
             <span className="text-xs text-slate-500">Metadata is sent before the file so upload can stream directly to Google Drive.</span>
-            <Input type="file" className="sr-only" onChange={(event) => selectUploadFile(event.target.files?.[0])} required={!selectedFile} />
+            <Input type="file" className="sr-only" multiple onChange={(event) => selectUploadFiles(event.target.files)} required={selectedFiles.length === 0} />
           </label>
           {activeFolder ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Uploading to: <b>{activeFolder.name}</b></p> : <label className="grid gap-2 text-sm font-semibold">Virtual Folder<select className="h-11 rounded-xl border border-slate-200 px-3 text-sm" value={selectedFolderId} onChange={(event) => setSelectedFolderId(event.target.value)}><option value="">No folder</option>{allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}
-          {selectedFile ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{selectedFile.name} - {formatBytes(selectedFile.size)}</p> : null}
-          <div className="flex justify-end gap-3"><Button type="button" variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button><Button disabled={loading || !selectedFile}>{loading ? 'Uploading...' : 'Upload'}</Button></div>
+          {selectedFiles.length > 0 ? <div className="grid gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><div className="flex items-center justify-between gap-3"><span className="font-bold text-slate-950">{selectedFiles.length} selected</span><span>{formatBytes(selectedFiles.reduce((total, file) => total + file.size, 0))}</span></div>{selectedFiles.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2"><span className="truncate">{file.name} - {formatBytes(file.size)}</span><button type="button" className="text-slate-500 hover:text-red-600" onClick={() => removeUploadFile(index)} aria-label={`Remove ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div> : null}
+          <div className="flex justify-end gap-3"><Button type="button" variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button><Button disabled={loading || selectedFiles.length === 0}>{loading ? 'Uploading...' : `Upload${selectedFiles.length > 1 ? ` ${selectedFiles.length} files` : ''}`}</Button></div>
         </form>
       </DummyModal>
       <DummyModal open={folderOpen} title="New Folder" description="Create a virtual folder for organizing files." onClose={() => setFolderOpen(false)}>
