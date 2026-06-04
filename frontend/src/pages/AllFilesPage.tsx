@@ -4,6 +4,7 @@ import { Archive, CheckCircle, ChevronDown, Folder, FolderPlus, LayoutGrid, List
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DummyModal } from '@/components/drive/DummyModal'
+import { EmptyAreaContextMenu } from '@/components/drive/EmptyAreaContextMenu'
 import { FileContextMenu } from '@/components/drive/FileContextMenu'
 import { FileDetailsDrawer } from '@/components/drive/FileDetailsDrawer'
 import { FileTable } from '@/components/drive/FileTable'
@@ -65,6 +66,7 @@ export function AllFilesPage() {
   const [activeFolderForMenu, setActiveFolderForMenu] = useState<FolderItem | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileItem | null }>({ x: 0, y: 0, file: null })
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: FolderItem | null }>({ x: 0, y: 0, folder: null })
+  const [emptyContextMenu, setEmptyContextMenu] = useState<{ x: number; y: number; open: boolean }>({ x: 0, y: 0, open: false })
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ open: boolean; fileName: string; percent: number; status: 'uploading' | 'done' | 'error' }>({ open: false, fileName: '', percent: 0, status: 'uploading' })
@@ -97,6 +99,7 @@ export function AllFilesPage() {
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') setContextMenu({ x: 0, y: 0, file: null })
       if (event.key === 'Escape') setFolderContextMenu({ x: 0, y: 0, folder: null })
+      if (event.key === 'Escape') setEmptyContextMenu({ x: 0, y: 0, open: false })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -180,6 +183,11 @@ export function AllFilesPage() {
   function openFolder(folder: FolderItem) {
     if (!folder.id) return
     setSearchParams({ folderId: folder.id })
+  }
+
+  function openEmptyContextMenu(event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    setEmptyContextMenu({ x: event.clientX, y: event.clientY, open: true })
   }
 
   function closeFolder() {
@@ -275,6 +283,7 @@ export function AllFilesPage() {
 
   return (
     <>
+      <div onContextMenu={openEmptyContextMenu} className="min-h-[620px]">
       <PageHeader title={activeFolder ? <span><button className="text-blue-600 hover:underline" onClick={closeFolder}>All Files</button><span className="text-slate-400"> / </span><span>{activeFolder.name}</span></span> : 'All Files'} actions={<><Button variant="outline" onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4" />Upload</Button><Button variant="outline" onClick={() => setFolderOpen(true)}><FolderPlus className="h-4 w-4" />New Folder</Button></>} />
       {message ? <p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">{message}</p> : null}
       {!activeFolder && (recentFolders.length > 0 ? <FolderGrid items={recentFolders} mobileTwoColumns onFolderMenu={openFolderMenu} onFolderOpen={openFolder} /> : <p className="mt-8 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No folders yet. Click New Folder to organize uploads.</p>)}
@@ -284,6 +293,8 @@ export function AllFilesPage() {
         <div className="hidden gap-3 sm:flex"><Button variant="outline" size="icon"><LayoutGrid className="h-5 w-5" /></Button><Button variant="outline" size="icon"><List className="h-5 w-5" /></Button></div>
       </div>
       {files.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">{activeFolder ? 'No files in this folder yet.' : 'No uploaded files yet. Connect Google Drive in Settings, then upload a file.'}</p> : <FileTable files={files} onFileContextMenu={openContext} />}
+      </div>
+      <EmptyAreaContextMenu x={emptyContextMenu.x} y={emptyContextMenu.y} open={emptyContextMenu.open} onClose={() => setEmptyContextMenu({ x: 0, y: 0, open: false })} onUpload={() => { setUploadOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onCreateFolder={() => { setFolderOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} />
       <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
       <FolderContextMenu x={folderContextMenu.x} y={folderContextMenu.y} folder={folderContextMenu.folder} onClose={() => setFolderContextMenu({ x: 0, y: 0, folder: null })} onRename={() => { setFolderRenameValue(activeFolderForMenu?.name ?? ''); setFolderRenameColor(activeFolderForMenu?.color ?? 'text-blue-500'); setFolderRenameOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} onDelete={() => { setFolderDeleteOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} />
       <FileDetailsDrawer open={detailOpen} file={activeFile} onClose={() => setDetailOpen(false)} />
