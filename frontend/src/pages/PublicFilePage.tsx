@@ -3,13 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Download, ExternalLink, FileArchive, FileText, ImageIcon, Play, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
-
-declare global {
-  interface Window {
-    Plyr?: new (element: HTMLVideoElement, options?: Record<string, unknown>) => { destroy: () => void }
-    __plyrReady?: Promise<void>
-  }
-}
+import { createPlyr, ensurePlyr } from '@/lib/plyr'
 
 type PublicFile = { name: string; mimeType: string; sizeBytes: string; createdAt: string }
 
@@ -27,38 +21,6 @@ function fileIcon(kind: ReturnType<typeof previewKind>) {
   if (kind === 'document') return <FileText className="h-5 w-5" />
   if (kind === 'sheet') return <Table2 className="h-5 w-5" />
   return <FileArchive className="h-5 w-5" />
-}
-
-function ensurePlyr() {
-  if (window.Plyr) return Promise.resolve()
-  if (window.__plyrReady) return window.__plyrReady
-
-  window.__plyrReady = new Promise<void>((resolve, reject) => {
-    if (!document.querySelector('link[data-plyr="true"]')) {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.css'
-      link.dataset.plyr = 'true'
-      document.head.appendChild(link)
-    }
-
-    const existing = document.querySelector<HTMLScriptElement>('script[data-plyr="true"]')
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true })
-      existing.addEventListener('error', () => reject(new Error('Failed to load Plyr')), { once: true })
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.min.js'
-    script.async = true
-    script.dataset.plyr = 'true'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Plyr'))
-    document.body.appendChild(script)
-  })
-
-  return window.__plyrReady
 }
 
 function UnsupportedPreview({ file, downloadUrl }: { file: PublicFile; downloadUrl: string }) {
@@ -108,8 +70,8 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
     let player: { destroy: () => void } | null = null
 
     ensurePlyr().then(() => {
-      if (disposed || !videoRef.current || !window.Plyr) return
-      player = new window.Plyr(videoRef.current, { ratio: '16:9', controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'] })
+      if (disposed || !videoRef.current) return
+      player = createPlyr(videoRef.current)
     }).catch(() => undefined)
 
     return () => {
@@ -137,7 +99,7 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
   const preview = (
     <div className="flex h-full w-full items-center justify-center">
       {kind === 'image' ? <img src={previewUrl} alt={file.name} className="max-h-full max-w-full object-contain shadow-2xl shadow-black/30" /> : null}
-      {kind === 'video' ? <video ref={videoRef} src={previewUrl} controls playsInline className="w-full max-w-6xl rounded-xl bg-black shadow-2xl shadow-black/40" /> : null}
+      {kind === 'video' ? <video ref={videoRef} controls playsInline preload="metadata" className="w-full max-w-6xl rounded-xl bg-black shadow-2xl shadow-black/40"><source src={previewUrl} type={file.mimeType} /></video> : null}
       {kind === 'document' ? <iframe src={previewUrl} title={file.name} className="h-full w-full border-0 bg-white" /> : null}
       {kind === 'sheet' || !kind ? <UnsupportedPreview file={file} downloadUrl={downloadUrl} /> : null}
     </div>

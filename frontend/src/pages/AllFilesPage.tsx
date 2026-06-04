@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Archive, CheckCircle, ChevronDown, Folder, FolderPlus, LayoutGrid, List, MoreVertical, Star, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/drive/PageHeader'
 import { Input } from '@/components/ui/input'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
 import { getAccessToken } from '@/lib/auth'
+import { createPlyr, ensurePlyr } from '@/lib/plyr'
 import type { FileItem, FolderItem } from '@/data/drive-data'
 
 type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
@@ -70,6 +71,7 @@ export function AllFilesPage() {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ open: boolean; fileName: string; percent: number; status: 'uploading' | 'done' | 'error' }>({ open: false, fileName: '', percent: 0, status: 'uploading' })
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null)
 
   async function loadFiles() {
     const path = activeFolderId ? `/files?folderId=${activeFolderId}` : '/files'
@@ -104,6 +106,22 @@ export function AllFilesPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  useEffect(() => {
+    if (!previewOpen || !activeFile?.mimeType?.startsWith('video/') || !previewVideoRef.current) return undefined
+    let disposed = false
+    let player: { destroy: () => void } | null = null
+
+    ensurePlyr().then(() => {
+      if (disposed || !previewVideoRef.current) return
+      player = createPlyr(previewVideoRef.current)
+    }).catch(() => undefined)
+
+    return () => {
+      disposed = true
+      player?.destroy()
+    }
+  }, [previewOpen, activeFile?.mimeType, previewUrl])
 
   async function createFolder(event: FormEvent) {
     event.preventDefault()
@@ -287,7 +305,7 @@ export function AllFilesPage() {
       <PageHeader title={activeFolder ? <span><button className="text-blue-600 hover:underline" onClick={closeFolder}>All Files</button><span className="text-slate-400"> / </span><span>{activeFolder.name}</span></span> : 'All Files'} actions={<><Button variant="outline" onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4" />Upload</Button><Button variant="outline" onClick={() => setFolderOpen(true)}><FolderPlus className="h-4 w-4" />New Folder</Button></>} />
       {message ? <p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">{message}</p> : null}
       {!activeFolder && (recentFolders.length > 0 ? <FolderGrid items={recentFolders} mobileTwoColumns onFolderMenu={openFolderMenu} onFolderOpen={openFolder} /> : <p className="mt-8 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No folders yet. Click New Folder to organize uploads.</p>)}
-      {!activeFolder && moreFolders.length > 0 ? <Card className="mt-5 p-5"><h2 className="font-extrabold">More Folders</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{moreFolders.map((folder) => <div key={folder.id} onClick={() => openFolder(folder)} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 hover:bg-slate-100"><div className="flex items-center gap-3"><Folder className="h-5 w-5 text-blue-600" /><div><p className="font-semibold">{folder.name}</p><p className="text-xs text-slate-500">{folder.updated}</p></div></div><button className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white" onClick={(event) => openFolderMenu(event, folder)} aria-label={`Open ${folder.name} menu`}><MoreVertical className="h-5 w-5" /></button></div>)}</div></Card> : null}
+      {!activeFolder && moreFolders.length > 0 ? <Card className="mt-5 p-5"><h2 className="font-extrabold">More Folders</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{moreFolders.map((folder) => <div key={folder.id} onClick={() => openFolder(folder)} onContextMenu={(event) => openFolderMenu(event, folder)} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 hover:bg-slate-100"><div className="flex items-center gap-3"><Folder className="h-5 w-5 text-blue-600" /><div><p className="font-semibold">{folder.name}</p><p className="text-xs text-slate-500">{folder.updated}</p></div></div><button className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white" onClick={(event) => openFolderMenu(event, folder)} aria-label={`Open ${folder.name} menu`}><MoreVertical className="h-5 w-5" /></button></div>)}</div></Card> : null}
       <div className="mt-10 flex items-center justify-between gap-3">
         <div className="flex gap-3"><Button variant="soft"><Archive className="h-4 w-4" />Recents</Button><Button variant="soft"><Star className="h-4 w-4" />Starred</Button></div>
         <div className="hidden gap-3 sm:flex"><Button variant="outline" size="icon"><LayoutGrid className="h-5 w-5" /></Button><Button variant="outline" size="icon"><List className="h-5 w-5" /></Button></div>
@@ -323,7 +341,7 @@ export function AllFilesPage() {
       <DummyModal open={previewOpen} title="File Preview" description={activeFile?.name ?? ''} onClose={closePreview} className="max-w-5xl">
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
           {activeFile?.mimeType?.startsWith('image/') ? <img src={previewUrl} alt={activeFile.name} className="max-h-[70vh] w-full object-contain" /> : null}
-          {activeFile?.mimeType?.startsWith('video/') ? <video src={previewUrl} controls className="max-h-[70vh] w-full" /> : null}
+          {activeFile?.mimeType?.startsWith('video/') ? <video ref={previewVideoRef} controls playsInline preload="metadata" className="max-h-[70vh] w-full"><source src={previewUrl} type={activeFile.mimeType} /></video> : null}
           {activeFile?.mimeType === 'application/pdf' ? <iframe src={previewUrl} title={activeFile.name} className="h-[70vh] w-full" /> : null}
           {!activeFile?.mimeType?.startsWith('image/') && !activeFile?.mimeType?.startsWith('video/') && activeFile?.mimeType !== 'application/pdf' ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}
         </div>
