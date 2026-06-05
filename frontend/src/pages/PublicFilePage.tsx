@@ -4,22 +4,16 @@ import { Download, ExternalLink, FileArchive, FileText, ImageIcon, Play, Table2 
 import { Button } from '@/components/ui/button'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
 import { createPlyr, ensurePlyr } from '@/lib/plyr'
+import { getPreviewKind, isSpreadsheetMimeType, officeViewerUrl } from '@/lib/preview'
 
 type PublicFile = { name: string; mimeType: string; sizeBytes: string; createdAt: string }
 
-function previewKind(mimeType: string) {
-  if (mimeType.startsWith('image/') || mimeType === 'application/vnd.google-apps.drawing') return 'image'
-  if (mimeType.startsWith('video/')) return 'video'
-  if (mimeType === 'application/pdf' || mimeType === 'application/vnd.google-apps.document' || mimeType === 'application/vnd.google-apps.presentation') return 'document'
-  if (mimeType === 'application/vnd.google-apps.spreadsheet') return 'sheet'
-  return null
-}
-
-function fileIcon(kind: ReturnType<typeof previewKind>) {
+function fileIcon(file: PublicFile, kind: ReturnType<typeof getPreviewKind>) {
   if (kind === 'image') return <ImageIcon className="h-5 w-5" />
   if (kind === 'video') return <Play className="h-5 w-5" />
+  if (isSpreadsheetMimeType(file.mimeType)) return <Table2 className="h-5 w-5" />
   if (kind === 'document') return <FileText className="h-5 w-5" />
-  if (kind === 'sheet') return <Table2 className="h-5 w-5" />
+  if (kind === 'office') return <FileText className="h-5 w-5" />
   return <FileArchive className="h-5 w-5" />
 }
 
@@ -45,7 +39,7 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const previewUrl = `${API_URL}/public/files/${token}/preview`
   const downloadUrl = `${API_URL}/public/files/${token}/download`
-  const kind = file ? previewKind(file.mimeType) : null
+  const kind = getPreviewKind(file?.mimeType)
 
   useEffect(() => {
     setFailed(false)
@@ -101,7 +95,8 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
       {kind === 'image' ? <img src={previewUrl} alt={file.name} className="max-h-full max-w-full object-contain shadow-2xl shadow-black/30" /> : null}
       {kind === 'video' ? <div className="shared-video-shell"><video ref={videoRef} controls playsInline preload="metadata"><source src={previewUrl} type={file.mimeType} /></video></div> : null}
       {kind === 'document' ? <iframe src={previewUrl} title={file.name} className="h-full w-full border-0 bg-white" /> : null}
-      {kind === 'sheet' || !kind ? <UnsupportedPreview file={file} downloadUrl={downloadUrl} /> : null}
+      {kind === 'office' ? <iframe src={officeViewerUrl(previewUrl)} title={file.name} className="h-full w-full border-0 bg-white" /> : null}
+      {!kind ? <UnsupportedPreview file={file} downloadUrl={downloadUrl} /> : null}
     </div>
   )
 
@@ -114,7 +109,7 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#17191f]/95 px-4 shadow-lg shadow-black/20 backdrop-blur sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-slate-100">
-            {fileIcon(kind)}
+            {fileIcon(file, kind)}
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold text-white sm:text-base">{file.name}</h1>

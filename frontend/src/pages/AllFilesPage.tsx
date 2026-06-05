@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
 import { getAccessToken } from '@/lib/auth'
 import { createPlyr, ensurePlyr } from '@/lib/plyr'
+import { getPreviewKind, officeViewerUrl } from '@/lib/preview'
 import type { FileItem, FolderItem } from '@/data/drive-data'
 
 type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
@@ -39,14 +40,6 @@ function mimeToKind(mimeType: string): FileItem['kind'] {
   if (mimeType.startsWith('video/')) return 'video'
   if (mimeType.includes('pdf')) return 'pdf'
   return 'doc'
-}
-
-function previewKind(mimeType: string | undefined) {
-  if (!mimeType) return null
-  if (mimeType.startsWith('image/') || mimeType === 'application/vnd.google-apps.drawing') return 'image'
-  if (mimeType.startsWith('video/')) return 'video'
-  if (mimeType === 'application/pdf' || mimeType === 'application/vnd.google-apps.document' || mimeType === 'application/vnd.google-apps.presentation') return 'document'
-  return null
 }
 
 function mapFile(file: BackendFile): FileItem {
@@ -470,7 +463,7 @@ export function AllFilesPage() {
   const activeFolder = allFolders.find((folder) => folder.id === activeFolderId)
   const allVisibleSelected = files.length > 0 && files.every((file) => file.id && selectedFileIds.has(file.id))
   const uploadPanelTitle = uploadProgress.status === 'done' ? 'Upload complete' : uploadProgress.status === 'partial' ? 'Upload completed with errors' : uploadProgress.status === 'error' ? 'Upload failed' : uploadProgress.percent >= 99 ? 'Processing on server' : 'Uploading files'
-  const activePreviewKind = previewKind(activeFile?.mimeType)
+  const activePreviewKind = getPreviewKind(activeFile?.mimeType)
 
   return (
     <>
@@ -530,6 +523,7 @@ export function AllFilesPage() {
           {activePreviewKind === 'image' ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-[70vh] w-full object-contain" /> : null}
           {activePreviewKind === 'video' ? <div className="drive-preview-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata"><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
           {activePreviewKind === 'document' ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-[70vh] w-full" /> : null}
+          {activePreviewKind === 'office' ? <iframe src={officeViewerUrl(previewUrl)} title={activeFile?.name ?? 'File preview'} className="h-[70vh] w-full bg-white" /> : null}
           {!activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}
         </div>
       </DummyModal>

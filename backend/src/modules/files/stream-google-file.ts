@@ -5,11 +5,16 @@ import { getAuthedGoogleClient } from '../google/google.service.js'
 type FileWithAccount = File & { connectedAccount: ConnectedAccount }
 type StreamOptions = { disposition?: 'inline' | 'attachment' }
 
-const googleExportMimeTypes: Record<string, { mimeType: string; extension: string }> = {
+const googleDownloadExportMimeTypes: Record<string, { mimeType: string; extension: string }> = {
   'application/vnd.google-apps.document': { mimeType: 'application/pdf', extension: '.pdf' },
   'application/vnd.google-apps.spreadsheet': { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: '.xlsx' },
   'application/vnd.google-apps.presentation': { mimeType: 'application/pdf', extension: '.pdf' },
   'application/vnd.google-apps.drawing': { mimeType: 'image/png', extension: '.png' },
+}
+
+const googlePreviewExportMimeTypes: Record<string, { mimeType: string; extension: string }> = {
+  ...googleDownloadExportMimeTypes,
+  'application/vnd.google-apps.spreadsheet': { mimeType: 'application/pdf', extension: '.pdf' },
 }
 
 function contentDisposition(type: 'inline' | 'attachment', fileName: string) {
@@ -28,7 +33,7 @@ function normalizeHeaders(headers: Headers | Record<string, string>) {
 export async function streamGoogleFile(file: FileWithAccount, range: string | undefined, res: Response, options: StreamOptions = {}) {
   const auth = await getAuthedGoogleClient(file.connectedAccount)
   const headers = normalizeHeaders(await auth.getRequestHeaders())
-  const exportTarget = googleExportMimeTypes[file.mimeType]
+  const exportTarget = (options.disposition === 'inline' ? googlePreviewExportMimeTypes : googleDownloadExportMimeTypes)[file.mimeType]
   const responseMimeType = exportTarget?.mimeType ?? file.mimeType
   const responseFileName = exportTarget ? withExtension(file.name, exportTarget.extension) : file.name
   const url = exportTarget
