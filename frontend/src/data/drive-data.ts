@@ -4,6 +4,7 @@ export type FolderItem = {
   updated: string
   color: string
   iconUrl?: string | null
+  parentId?: string | null
 }
 
 export type FileItem = {

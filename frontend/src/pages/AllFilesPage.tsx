@@ -47,7 +47,7 @@ function mapFile(file: BackendFile): FileItem {
 }
 
 function mapFolder(folder: BackendFolder): FolderItem {
-  return { id: folder.id, name: folder.name, color: folder.color, iconUrl: folder.iconUrl, updated: `Updated ${formatDate(folder.updatedAt)}` }
+  return { id: folder.id, name: folder.name, color: folder.color, iconUrl: folder.iconUrl, parentId: folder.parentId, updated: `Updated ${formatDate(folder.updatedAt)}` }
 }
 
 function estimateUploadProgress(files: File[], percent: number, status: UploadProgressStatus): UploadProgressFile[] {
@@ -311,6 +311,10 @@ export function AllFilesPage() {
     setSearchParams(searchQuery ? { folderId: folder.id, q: searchQuery } : { folderId: folder.id })
   }
 
+  function openFolderById(folderId: string) {
+    setSearchParams(searchQuery ? { folderId, q: searchQuery } : { folderId })
+  }
+
   function openEmptyContextMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault()
     setEmptyContextMenu({ x: event.clientX, y: event.clientY, open: true })
@@ -461,6 +465,19 @@ export function AllFilesPage() {
   const recentFolders = folders.slice(0, 4)
   const moreFolders = folders.slice(4)
   const activeFolder = allFolders.find((folder) => folder.id === activeFolderId)
+  const folderBreadcrumbs = (() => {
+    if (!activeFolder) return []
+    const foldersById = new Map(allFolders.map((folder) => [folder.id, folder]))
+    const path: FolderItem[] = []
+    const visited = new Set<string>()
+    let current: FolderItem | undefined = activeFolder
+    while (current?.id && !visited.has(current.id)) {
+      path.unshift(current)
+      visited.add(current.id)
+      current = current.parentId ? foldersById.get(current.parentId) : undefined
+    }
+    return path
+  })()
   const allVisibleSelected = files.length > 0 && files.every((file) => file.id && selectedFileIds.has(file.id))
   const uploadPanelTitle = uploadProgress.status === 'done' ? 'Upload complete' : uploadProgress.status === 'partial' ? 'Upload completed with errors' : uploadProgress.status === 'error' ? 'Upload failed' : uploadProgress.percent >= 99 ? 'Processing on server' : 'Uploading files'
   const activePreviewKind = getPreviewKind(activeFile?.mimeType)
@@ -468,7 +485,7 @@ export function AllFilesPage() {
   return (
     <>
       <div onContextMenu={openEmptyContextMenu} className="min-h-[620px] w-full min-w-0">
-      <PageHeader title={activeFolder ? <span className="block min-w-0 truncate"><button className="text-blue-600 hover:underline" onClick={closeFolder}>All Files</button><span className="text-slate-400"> / </span><span>{activeFolder.name}</span></span> : 'All Files'} actions={<><Button className="w-full" onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4" />Upload</Button><Button className="w-full" variant="outline" onClick={() => setFolderOpen(true)}><FolderPlus className="h-4 w-4" />New Folder</Button></>} />
+      <PageHeader title={activeFolder ? <span className="block min-w-0 truncate"><button className="text-blue-600 hover:underline" onClick={closeFolder}>All Files</button>{folderBreadcrumbs.map((folder, index) => <span key={folder.id}><span className="text-slate-400"> / </span>{index === folderBreadcrumbs.length - 1 ? <span>{folder.name}</span> : <button className="text-blue-600 hover:underline" onClick={() => folder.id && openFolderById(folder.id)}>{folder.name}</button>}</span>)}</span> : 'All Files'} actions={<><Button className="w-full" onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4" />Upload</Button><Button className="w-full" variant="outline" onClick={() => setFolderOpen(true)}><FolderPlus className="h-4 w-4" />New Folder</Button></>} />
       {message ? <p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">{message}</p> : null}
       {!activeFolder && (recentFolders.length > 0 ? <FolderGrid items={recentFolders} mobileTwoColumns onFolderMenu={openFolderMenu} onFolderOpen={openFolder} /> : <p className="mt-8 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No folders yet. Click New Folder to organize uploads.</p>)}
       {!activeFolder && moreFolders.length > 0 ? <Card className="mt-5 p-4 sm:p-5"><h2 className="font-extrabold">More Folders</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{moreFolders.map((folder) => <div key={folder.id} onClick={() => openFolder(folder)} onContextMenu={(event) => openFolderMenu(event, folder)} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 hover:bg-slate-100"><div className="flex min-w-0 items-center gap-3"><FolderVisual folder={folder} className="h-6 w-6 shrink-0" /><div className="min-w-0"><p className="truncate font-semibold">{folder.name}</p><p className="truncate text-xs text-slate-500">{folder.updated}</p></div></div><button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-white sm:h-8 sm:w-8 sm:rounded-lg" onClick={(event) => { event.stopPropagation(); openFolderMenu(event, folder) }} aria-label={`Open ${folder.name} menu`}><MoreVertical className="h-5 w-5" /></button></div>)}</div></Card> : null}
