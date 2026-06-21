@@ -24,6 +24,7 @@ import { useDriveLayoutActions } from '@/layouts/DriveLayout'
 
 type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
 type BackendFolder = { id: string; name: string; color: string; iconUrl?: string | null; parentId?: string | null; updatedAt: string }
+type ConnectedAccount = { id: string; provider: string; email: string; displayName?: string | null; status: string }
 
 type FileViewMode = 'list' | 'grid'
 
@@ -124,6 +125,8 @@ export function AllFilesPage() {
     return (v === 'xs' || v === 'sm' || v === 'md' || v === 'lg') ? v : 'md'
   })
   const { setHeaderActions } = useDriveLayoutActions()
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([])
+  const [selectedTargetAccountId, setSelectedTargetAccountId] = useState('')
 
   function changeFolderSize(scale: FolderSizeScale) {
     setFolderSizeScale(scale)
@@ -196,6 +199,18 @@ export function AllFilesPage() {
   }, [activeFolderId, searchQuery])
 
   useEffect(() => {
+    async function loadConnectedAccounts() {
+      try {
+        const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts')
+        setConnectedAccounts(data.accounts || [])
+      } catch (error) {
+        console.error('Failed to load connected accounts:', error)
+      }
+    }
+    loadConnectedAccounts()
+  }, [])
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') setContextMenu({ x: 0, y: 0, file: null })
       if (event.key === 'Escape') setFolderContextMenu({ x: 0, y: 0, folder: null })
@@ -259,13 +274,15 @@ export function AllFilesPage() {
 
     const uploadingFiles = [...selectedFiles]
     const targetFolderId = activeFolderId || selectedFolderId
+    const targetAccountId = selectedTargetAccountId || null
 
     setSelectedFiles([])
     setSelectedFolderId('')
+    setSelectedTargetAccountId('')
     setUploadOpen(false)
 
     try {
-      await uploadFiles(uploadingFiles, targetFolderId)
+      await uploadFiles(uploadingFiles, targetFolderId, targetAccountId)
     } catch (err) {
       console.error('Upload initiation failed:', err)
     } finally {
@@ -691,7 +708,22 @@ export function AllFilesPage() {
             <span className="text-xs text-slate-500">Metadata is sent before the file so upload can stream directly to Google Drive.</span>
             <Input type="file" className="sr-only" multiple onChange={(event) => selectUploadFiles(event.target.files)} required={selectedFiles.length === 0} />
           </label>
-          {activeFolder ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Uploading to: <b>{activeFolder.name}</b></p> : <label className="grid gap-2 text-sm font-semibold">Virtual Folder<select className="h-11 rounded-xl border border-slate-200 px-3 text-sm" value={selectedFolderId} onChange={(event) => setSelectedFolderId(event.target.value)}><option value="">No folder</option>{allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}
+          <label className="grid gap-2 text-sm font-semibold">
+            Target Storage Account
+            <select
+              className="h-11 rounded-xl border border-slate-200 px-3 text-sm bg-white"
+              value={selectedTargetAccountId}
+              onChange={(event) => setSelectedTargetAccountId(event.target.value)}
+            >
+              <option value="">Automatic (Default)</option>
+              {connectedAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.email || account.displayName || account.id} ({account.provider === 's3' ? 'S3' : 'Google Drive'})
+                </option>
+              ))}
+            </select>
+          </label>
+          {activeFolder ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Uploading to: <b>{activeFolder.name}</b></p> : <label className="grid gap-2 text-sm font-semibold">Virtual Folder<select className="h-11 rounded-xl border border-slate-200 px-3 text-sm bg-white" value={selectedFolderId} onChange={(event) => setSelectedFolderId(event.target.value)}><option value="">No folder</option>{allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}
           {selectedFiles.length > 0 ? <div className="grid max-h-56 gap-2 overflow-y-auto rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><div className="flex items-center justify-between gap-3"><span className="font-bold text-slate-950">{selectedFiles.length} selected</span><span className="shrink-0">{formatBytes(selectedFiles.reduce((total, file) => total + file.size, 0))}</span></div>{selectedFiles.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-white px-3 py-2"><span className="min-w-0 flex-1 truncate" title={file.name}>{file.name}</span><span className="shrink-0 text-xs text-slate-500">{formatBytes(file.size)}</span><button type="button" className="shrink-0 text-slate-500 hover:text-red-600" onClick={() => removeUploadFile(index)} aria-label={`Remove ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div> : null}
           <div className="grid gap-3 sm:flex sm:justify-end"><Button type="button" variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button><Button disabled={loading || selectedFiles.length === 0}>{loading ? 'Uploading...' : `Upload${selectedFiles.length > 1 ? ` ${selectedFiles.length} files` : ''}`}</Button></div>
         </form>

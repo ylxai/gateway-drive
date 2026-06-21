@@ -6,12 +6,12 @@ export type UploadProgressStatus = 'uploading' | 'done' | 'error' | 'partial'
 export type UploadProgressFile = { name: string; size: number; percent: number; status: UploadProgressStatus }
 export type UploadProgressState = { open: boolean; fileName: string; percent: number; status: UploadProgressStatus; files: UploadProgressFile[] }
 
-type ResumableSession = { sessionId: string; file: File; folderId?: string | null }
+type ResumableSession = { sessionId: string; file: File; folderId?: string | null; targetAccountId?: string | null }
 
 type UploadContextType = {
   uploadProgress: UploadProgressState
   setUploadProgress: React.Dispatch<React.SetStateAction<UploadProgressState>>
-  uploadFiles: (files: File[], folderId: string | null) => Promise<void>
+  uploadFiles: (files: File[], folderId: string | null, targetAccountId?: string | null) => Promise<void>
   retryFailedUpload: (fileName: string) => Promise<void>
 }
 
@@ -27,7 +27,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   })
   const [resumableSessions, setResumableSessions] = useState<Record<string, ResumableSession>>({})
 
-  async function uploadSingleFileResumable(file: File, folderId: string | null, onProgress: (percent: number) => void, sessionIdToRetry?: string) {
+  async function uploadSingleFileResumable(file: File, folderId: string | null, onProgress: (percent: number) => void, sessionIdToRetry?: string, targetAccountId?: string | null) {
     const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB chunks (must be multiple of 256KB for Google Drive)
     let sessionId = sessionIdToRetry || ''
     let startOffset = 0
@@ -40,14 +40,15 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           sizeBytes: String(file.size),
-          folderId: folderId || undefined
+          folderId: folderId || undefined,
+          targetAccountId: targetAccountId || undefined
         })
       })
       sessionId = initData.sessionId
       // Save session mapping to state in case it fails and needs retry
       setResumableSessions(prev => ({
         ...prev,
-        [file.name]: { sessionId, file, folderId }
+        [file.name]: { sessionId, file, folderId, targetAccountId }
       }))
     } else {
       const statusData = await apiFetch<{ status: string; offset: string }>(`/uploads/resumable/status/${sessionId}`)
@@ -90,7 +91,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function uploadFiles(filesToUpload: File[], targetFolderId: string | null) {
+  async function uploadFiles(filesToUpload: File[], targetFolderId: string | null, targetAccountId?: string | null) {
     if (filesToUpload.length === 0) return
 
     // Setup initial status
@@ -119,7 +120,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               files: nextFiles
             }
           })
-        })
+        }, undefined, targetAccountId)
       } catch (err) {
         console.error('File upload failed:', file.name, err)
         setUploadProgress((current) => {
@@ -171,7 +172,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             files: nextFiles
           }
         })
-      }, session.sessionId)
+      }, session.sessionId, session.targetAccountId)
 
       window.dispatchEvent(new Event('9drive:storage-changed'))
       window.dispatchEvent(new Event('9drive:upload-completed'))

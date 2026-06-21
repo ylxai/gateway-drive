@@ -42,9 +42,9 @@ function byPriority<T extends { account: { id: string; createdAt: Date } }>(item
   })
 }
 
-async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByAccount = new Map<string, bigint>()) {
+async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByAccount = new Map<string, bigint>(), targetAccountId?: string | null) {
   const accounts = await prisma.connectedAccount.findMany({
-    where: { userId, provider: { in: ['google_drive', 's3'] }, status: 'connected' },
+    where: { userId, provider: { in: ['google_drive', 's3'] }, status: 'connected', ...(targetAccountId ? { id: targetAccountId } : {}) },
     include: { storageAccount: true },
   })
 
@@ -64,6 +64,11 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     .filter(({ availableBytes }) => availableBytes === null || availableBytes >= sizeBytes)
 
   if (eligible.length === 0) return null
+
+  if (targetAccountId) {
+    const target = eligible.find(e => e.account.id === targetAccountId)
+    return target?.account ?? null
+  }
 
   const policy = await prisma.uploadRoutingPolicy.upsert({ where: { userId }, create: { userId, mode: 'most_available', priorityAccountIds: [] }, update: {} })
   const mode = (['most_available', 'round_robin', 'priority'].includes(policy.mode) ? policy.mode : 'most_available') as RoutingMode
@@ -262,14 +267,15 @@ uploadRouter.post('/resumable/init', requireAuth, async (req: AuthRequest, res, 
       fileName: z.string().min(1),
       mimeType: z.string().min(1),
       sizeBytes: z.string(),
-      folderId: z.string().nullable().optional()
+      folderId: z.string().nullable().optional(),
+      targetAccountId: z.string().nullable().optional()
     }).parse(req.body)
 
     const sizeBytes = BigInt(body.sizeBytes)
     if (sizeBytes <= 0n) return res.status(400).json({ code: 'UPLOAD_SIZE_REQUIRED', message: 'Valid sizeBytes required.' })
     if (sizeBytes > BigInt(env.MAX_UPLOAD_BYTES)) return res.status(400).json({ code: 'UPLOAD_TOO_LARGE', message: 'File exceeds max upload size.' })
 
-    const account = await selectAccount(req.user!.id, sizeBytes)
+    const account = await selectAccount(req.user!.id, sizeBytes, undefined, body.targetAccountId)
     if (!account) return res.status(400).json({ code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: 'No connected storage account has enough space.' })
 
     const folderId = body.folderId || null
