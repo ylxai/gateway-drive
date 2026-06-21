@@ -23,7 +23,8 @@
 - In-app API documentation with cURL and JavaScript upload examples.
 - Bottom-right upload progress panel.
 - Bearer token authentication.
-- Global Google OAuth config stored encrypted in DB.
+- Global Google OAuth config stored encrypted in DB (can be set via seed command or directly in Settings UI).
+- Automated system updates via `update.sh` directly from the Settings UI (PM2 setup).
 - Optional reCAPTCHA on email/password registration.
 - MySQL database with Prisma migrations.
 - Express + TypeScript backend.
@@ -669,6 +670,43 @@ file
 - Use strong secrets.
 - Put the backend behind HTTPS.
 - Consider secure cookies or stronger token storage for production.
+
+## Google OAuth Configuration via UI
+
+Instead of seeding Google credentials manually using `npm run seed:google-config`, you can set them up directly from the frontend dashboard:
+1. Log in to the dashboard.
+2. Go to **Settings** -> **Google Credentials**.
+3. Input your **Google Client ID**, **Google Client Secret**, and **Redirect URI** (e.g. `https://103.65.237.136.nip.io:4000/connected-accounts/google/callback`).
+4. Click **Save Configuration**.
+
+The config is automatically encrypted and saved into the database, enabling Google sign-in and Google Drive connections instantly.
+
+## Automated Updates & PM2 Management
+
+For native VPS setups running with PM2, 9Drive includes a fully automated system update trigger and log monitor in the **Settings** UI.
+
+### How it works
+1. When you trigger an update from the frontend dashboard, the backend triggers the `update.sh` script in the background.
+2. The script:
+   - Resets any local Git conflicts (`git reset --hard`) and pulls the latest changes.
+   - Installs dependencies and builds both backend and frontend.
+   - Deploys Prisma database migrations.
+   - Restarts the backend process using PM2 (`pm2 restart 9drive-backend`).
+3. You can monitor the real-time rebuild progress using the log viewer inside the Settings UI.
+
+### Manual update command
+If you want to update manually via the terminal, run:
+```bash
+./update.sh
+```
+Or run the commands individually:
+```bash
+git reset --hard
+git pull origin main
+cd backend && npm install && npx prisma generate && npm run build && npx prisma migrate deploy
+cd ../frontend && npm install && npm run build
+pm2 restart 9drive-backend
+```
 
 ## Build
 
