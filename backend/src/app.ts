@@ -17,6 +17,7 @@ import { auditLogRouter } from './modules/audit-logs/audit-log.routes.js'
 import { systemRouter } from './modules/system/system.routes.js'
 
 export const app = express()
+app.set('trust proxy', true)
 
 app.use(cors({ origin: env.FRONTEND_URL }))
 app.use(express.json({ limit: '1mb' }))

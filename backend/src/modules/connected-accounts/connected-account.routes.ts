@@ -272,6 +272,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     await syncGoogleQuota(account.id)
     return res.redirect(`${env.FRONTEND_URL}/google-connected?status=success`)
   } catch (error) {
+    console.error('Google OAuth callback failed:', error)
     return res.redirect(`${env.FRONTEND_URL}/google-connected?status=error`)
   }
 })
