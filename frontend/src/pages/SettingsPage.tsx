@@ -41,6 +41,15 @@ export function SettingsPage() {
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [updatingSystem, setUpdatingSystem] = useState(false)
 
+  // Google OAuth Config states
+  const [googleClientId, setGoogleClientId] = useState('')
+  const [googleClientSecret, setGoogleClientSecret] = useState('')
+  const [googleRedirectUri, setGoogleRedirectUri] = useState('')
+  const [defaultRedirectUri, setDefaultRedirectUri] = useState('')
+  const [hasSecret, setHasSecret] = useState(false)
+  const [savingGoogleConfig, setSavingGoogleConfig] = useState(false)
+  const [showGoogleHelp, setShowGoogleHelp] = useState(false)
+
   async function runSystemUpdate() {
     setUpdatingSystem(true)
     setMessage('')
@@ -56,11 +65,47 @@ export function SettingsPage() {
       setUpdatingSystem(false)
     }
   }
+
+  async function saveGoogleConfig(event: FormEvent) {
+    event.preventDefault()
+    setSavingGoogleConfig(true)
+    setMessage('')
+    try {
+      const res = await apiFetch<{ message: string }>('/system/google-config', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: googleClientId,
+          clientSecret: googleClientSecret || undefined,
+          redirectUri: googleRedirectUri || defaultRedirectUri,
+        }),
+      })
+      setMessage(res.message || 'Google OAuth credentials saved.')
+      setHasSecret(true)
+      setGoogleClientSecret('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to save Google OAuth configuration')
+    } finally {
+      setSavingGoogleConfig(false)
+    }
+  }
+
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null
 
   async function load() {
     const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts')
     setAccounts(data.accounts)
+
+    try {
+      const configData = await apiFetch<{ exists: boolean; clientId: string; redirectUri: string; hasSecret: boolean; defaultRedirectUri: string }>('/system/google-config')
+      if (configData.exists) {
+        setGoogleClientId(configData.clientId || '')
+        setGoogleRedirectUri(configData.redirectUri || '')
+        setHasSecret(configData.hasSecret || false)
+      }
+      setDefaultRedirectUri(configData.defaultRedirectUri || '')
+    } catch (e) {
+      console.error('Failed to load global Google config', e)
+    }
   }
 
   useEffect(() => {
@@ -162,82 +207,160 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Setting" description="Manage account and connected storage." actions={<><Button variant="outline" className="col-span-2 w-full sm:col-span-1" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button><Button className="col-span-2 w-full sm:col-span-1" onClick={connectDrive} disabled={connecting}><Link2 className="h-4 w-4" />{connecting ? 'Connecting...' : 'Connect Drive'}</Button></>} />
-      {message ? <p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">{message}</p> : null}
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="grid gap-6">
-          <Card className="p-4 sm:p-5">
-            <div className="flex items-center gap-4 sm:gap-5">
+      <PageHeader title="Setting" description="Manage account and connected storage." actions={<><Button variant="outline" size="sm" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button><Button size="sm" onClick={connectDrive} disabled={connecting}><Link2 className="h-4 w-4" />{connecting ? 'Connecting...' : 'Connect Drive'}</Button></>} />
+      {message ? <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">{message}</p> : null}
+      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div className="grid gap-4">
+          <Card className="p-4">
+            <div className="flex items-center gap-3.5">
               {!profileImageUrl || avatarError ? (
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-2xl font-bold text-white shadow-sm border border-blue-400/20 sm:h-20 sm:w-20">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-lg font-bold text-white shadow-sm border border-blue-400/20 sm:h-14 sm:w-14">
                   {(user?.name ?? user?.email ?? 'U').trim().charAt(0).toUpperCase()}
                 </div>
               ) : (
                 <img 
                   src={profileImageUrl} 
                   alt="User avatar" 
-                  className="h-16 w-16 rounded-2xl object-cover sm:h-20 sm:w-20" 
+                  className="h-12 w-12 rounded-xl object-cover sm:h-14 sm:w-14" 
                   onError={() => setAvatarError(true)}
                 />
               )}
-              <div className="flex-1"><h2 className="text-xl font-extrabold">{user?.name ?? 'User'}</h2><p className="text-sm text-slate-500">{user?.email ?? '-'}</p></div>
+              <div className="flex-1"><h2 className="text-lg font-bold">{user?.name ?? 'User'}</h2><p className="text-xs text-slate-500 mt-0.5">{user?.email ?? '-'}</p></div>
             </div>
           </Card>
 
-          <Card className="overflow-hidden p-4 sm:p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="overflow-hidden p-3.5">
+            <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="flex items-center gap-3"><Cloud className="h-6 w-6 text-blue-600" /><h2 className="text-xl font-extrabold">Google Drive</h2></div>
-                <p className="mt-2 text-sm text-slate-500">Connect one or more Google Drive accounts. 9Drive will route uploads to account with enough space.</p>
+                <div className="flex items-center gap-2.5"><Cloud className="h-5 w-5 text-blue-600" /><h2 className="text-[16px] font-bold">Google Drive</h2></div>
+                <p className="mt-1 text-[13px] text-slate-500">Connect one or more Google Drive accounts. 9Drive will route uploads to account with enough space.</p>
               </div>
-              <Button className="w-full sm:w-36" onClick={connectDrive} disabled={connecting}><Link2 className="h-4 w-4" />{connecting ? 'Opening...' : 'Connect Drive'}</Button>
+              <Button className="w-full sm:w-32" size="sm" onClick={connectDrive} disabled={connecting}><Link2 className="h-4 w-4" />{connecting ? 'Opening...' : 'Connect Drive'}</Button>
             </div>
           </Card>
 
-          <Card className="overflow-hidden p-4 sm:p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="overflow-hidden p-3.5">
+            <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="flex items-center gap-3"><Database className="h-6 w-6 text-blue-600" /><h2 className="text-xl font-extrabold">S3 Compatible</h2></div>
-                <p className="mt-2 text-sm text-slate-500">Connect AWS S3, Cloudflare R2, MinIO, Wasabi, Backblaze B2, or custom endpoint storage.</p>
+                <div className="flex items-center gap-2.5"><Database className="h-5 w-5 text-blue-600" /><h2 className="text-[16px] font-bold">S3 Compatible</h2></div>
+                <p className="mt-1 text-[13px] text-slate-500">Connect AWS S3, Cloudflare R2, MinIO, Wasabi, Backblaze B2, or custom endpoint storage.</p>
               </div>
-              <Button className="w-full sm:w-36" variant="outline" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
+              <Button className="w-full sm:w-32" size="sm" variant="outline" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
             </div>
           </Card>
 
-          <Card className="p-4 sm:p-5">
-            <h2 className="font-extrabold">Connected Storage Accounts</h2>
-            <div className="mt-4 grid gap-3">
-              {accounts.length === 0 ? <p className="text-sm text-slate-500">No connected storage account yet.</p> : <>
-                <label className="grid gap-2 text-sm font-semibold">Choose Account<select className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={selectedAccount?.id ?? ''} onChange={(event) => setSelectedAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{providerLabel(account.provider)} - {account.displayName || account.email} ({account.status})</option>)}</select></label>
-                {selectedAccount ? <div className="rounded-xl bg-slate-50 p-4">
+          <Card className="p-4">
+            <h2 className="text-[16px] font-bold">Connected Storage Accounts</h2>
+            <div className="mt-3.5 grid gap-3">
+              {accounts.length === 0 ? <p className="text-xs text-slate-500">No connected storage account yet.</p> : <>
+                <label className="grid gap-1.5 text-xs font-semibold text-slate-500">Choose Account<select className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none" value={selectedAccount?.id ?? ''} onChange={(event) => setSelectedAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{providerLabel(account.provider)} - {account.displayName || account.email} ({account.status})</option>)}</select></label>
+                {selectedAccount ? <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0"><p className="break-all font-semibold">{selectedAccount.displayName || selectedAccount.email}</p><p className="text-sm text-slate-500">{providerLabel(selectedAccount.provider)} · {selectedAccount.status}</p></div>
-                    <div className="grid grid-cols-2 gap-2 sm:flex"><Button className="w-full" variant="outline" onClick={() => sync(selectedAccount.id)} disabled={syncingAccountId === selectedAccount.id}><RefreshCw className={syncingAccountId === selectedAccount.id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />{syncingAccountId === selectedAccount.id ? 'Syncing...' : 'Sync'}</Button><Button className="w-full" variant="danger" onClick={() => setAccountToDisconnect(selectedAccount)}><Trash2 className="h-4 w-4" />Disconnect</Button></div>
+                    <div className="min-w-0"><p className="break-all font-semibold text-sm">{selectedAccount.displayName || selectedAccount.email}</p><p className="text-xs text-slate-500 mt-0.5">{providerLabel(selectedAccount.provider)} · {selectedAccount.status}</p></div>
+                    <div className="grid grid-cols-2 gap-2 sm:flex"><Button className="w-full" size="sm" variant="outline" onClick={() => sync(selectedAccount.id)} disabled={syncingAccountId === selectedAccount.id}><RefreshCw className={syncingAccountId === selectedAccount.id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />{syncingAccountId === selectedAccount.id ? 'Syncing...' : 'Sync'}</Button><Button className="w-full" size="sm" variant="danger" onClick={() => setAccountToDisconnect(selectedAccount)}><Trash2 className="h-4 w-4" />Disconnect</Button></div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs sm:text-sm">
-                    <div className="rounded-xl bg-white p-3"><p className="font-extrabold text-slate-950">{formatBytes(selectedAccount.storageAccount?.usedBytes)}</p><p className="mt-1 text-slate-500">Used</p></div>
-                    <div className="rounded-xl bg-white p-3"><p className="font-extrabold text-slate-950">{storageLimitLabel(selectedAccount)}</p><p className="mt-1 text-slate-500">Total</p></div>
-                    <div className="rounded-xl bg-white p-3"><p className="font-extrabold text-slate-950">{availableLabel(selectedAccount)}</p><p className="mt-1 text-slate-500">Free</p></div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded-xl bg-white dark:bg-slate-950 p-2 border border-slate-100 dark:border-slate-800"><p className="font-extrabold text-slate-950">{formatBytes(selectedAccount.storageAccount?.usedBytes)}</p><p className="mt-0.5 text-[10px] text-slate-500">Used</p></div>
+                    <div className="rounded-xl bg-white dark:bg-slate-950 p-2 border border-slate-100 dark:border-slate-800"><p className="font-extrabold text-slate-950">{storageLimitLabel(selectedAccount)}</p><p className="mt-0.5 text-[10px] text-slate-500">Total</p></div>
+                    <div className="rounded-xl bg-white dark:bg-slate-950 p-2 border border-slate-100 dark:border-slate-800"><p className="font-extrabold text-slate-950">{availableLabel(selectedAccount)}</p><p className="mt-0.5 text-[10px] text-slate-500">Free</p></div>
                   </div>
                 </div> : null}
               </>}
             </div>
           </Card>
 
-          <Card className="overflow-hidden p-4 sm:p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="p-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <Cloud className="h-5 w-5 text-blue-600" />
+                <h2 className="text-[17px] font-bold">Google OAuth Credentials</h2>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-semibold"
+                type="button"
+                onClick={() => setShowGoogleHelp(!showGoogleHelp)}
+              >
+                {showGoogleHelp ? 'Hide Guide' : 'Setup Guide'}
+              </Button>
+            </div>
+
+            {showGoogleHelp && (
+              <div className="mb-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 p-3.5 text-[13px] leading-relaxed text-slate-600 border border-slate-100 dark:border-slate-800">
+                <p className="font-bold text-slate-800 dark:text-slate-200 mb-1.5">How to setup Google credentials:</p>
+                <ol className="list-decimal pl-4 space-y-1.5">
+                  <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google Cloud Console</a>.</li>
+                  <li>Enable the <strong>Google Drive API</strong> in your project.</li>
+                  <li>Go to <strong>APIs & Services &gt; Credentials</strong>, click <strong>Create Credentials &gt; OAuth client ID</strong>.</li>
+                  <li>Set application type to <strong>Web application</strong>.</li>
+                  <li>Add this exact URL under <strong>Authorized redirect URIs</strong>:
+                    <div className="mt-1 flex items-center gap-1.5 font-mono text-[11px] bg-white dark:bg-slate-950 p-1.5 rounded border border-slate-200 dark:border-slate-800 select-all overflow-x-auto">
+                      {googleRedirectUri || defaultRedirectUri}
+                    </div>
+                  </li>
+                  <li>Copy the generated <strong>Client ID</strong> and <strong>Client Secret</strong> into the form below and save.</li>
+                </ol>
+              </div>
+            )}
+
+            <form onSubmit={saveGoogleConfig} className="grid gap-3.5">
+              <label className="grid gap-1.5 text-xs font-bold text-slate-500">
+                Client ID
+                <input
+                  className="h-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-sm focus:border-blue-600 focus:outline-none"
+                  placeholder="Enter Google Client ID"
+                  value={googleClientId}
+                  onChange={(e) => setGoogleClientId(e.target.value)}
+                  required
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs font-bold text-slate-500">
+                Client Secret {hasSecret && <span className="font-normal text-emerald-600">(Already Configured)</span>}
+                <input
+                  className="h-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-sm focus:border-blue-600 focus:outline-none"
+                  type="password"
+                  placeholder={hasSecret ? "••••••••••••••••••••••••" : "Enter Google Client Secret"}
+                  value={googleClientSecret}
+                  onChange={(e) => setGoogleClientSecret(e.target.value)}
+                  required={!hasSecret}
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs font-bold text-slate-500">
+                Redirect URI (Optional)
+                <input
+                  className="h-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-sm focus:border-blue-600 focus:outline-none"
+                  placeholder={defaultRedirectUri}
+                  value={googleRedirectUri}
+                  onChange={(e) => setGoogleRedirectUri(e.target.value)}
+                />
+              </label>
+
+              <div className="flex justify-end mt-1">
+                <Button type="submit" disabled={savingGoogleConfig} size="sm">
+                  {savingGoogleConfig ? 'Saving...' : 'Save Credentials'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+
+          <Card className="overflow-hidden p-3.5">
+            <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="flex items-center gap-3">
-                  <RefreshCw className="h-6 w-6 text-blue-600" />
-                  <h2 className="text-xl font-extrabold">System Update</h2>
+                <div className="flex items-center gap-2.5">
+                  <RefreshCw className="h-5 w-5 text-blue-600" />
+                  <h2 className="text-[16px] font-bold">System Update</h2>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-1 text-[13px] text-slate-500">
                   Pull the latest code from GitHub. Dev servers will automatically restart.
                 </p>
               </div>
               <Button 
-                className="w-full sm:w-36" 
+                className="w-full sm:w-32" 
                 variant="outline" 
+                size="sm"
                 onClick={runSystemUpdate} 
                 disabled={updatingSystem}
               >
@@ -247,10 +370,10 @@ export function SettingsPage() {
             </div>
           </Card>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 lg:gap-5">
-          <Card className="p-4 sm:p-5"><HardDrive className="h-6 w-6 text-blue-600" /><h2 className="mt-3 font-extrabold sm:mt-4">Storage</h2><p className="mt-1 text-sm text-slate-500">Connected accounts: {accounts.length}</p></Card>
-          <Card className="p-4 sm:p-5"><Bell className="h-6 w-6 text-blue-600" /><h2 className="mt-3 font-extrabold sm:mt-4">Notifications</h2><p className="mt-1 text-sm text-slate-500">Email and app alerts are active.</p></Card>
-          <Card className="p-4 sm:p-5"><Globe className="h-6 w-6 text-blue-600" /><h2 className="mt-3 font-extrabold sm:mt-4">Region</h2><p className="mt-1 text-sm text-slate-500">Workspace region: local gateway.</p></Card>
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 lg:gap-3">
+          <Card className="p-4"><HardDrive className="h-5 w-5 text-blue-600" /><h2 className="mt-2 text-[14px] font-bold">Storage</h2><p className="mt-1 text-[12px] text-slate-500">Connected accounts: {accounts.length}</p></Card>
+          <Card className="p-4"><Bell className="h-5 w-5 text-blue-600" /><h2 className="mt-2 text-[14px] font-bold">Notifications</h2><p className="mt-1 text-[12px] text-slate-500">Email and app alerts are active.</p></Card>
+          <Card className="p-4"><Globe className="h-5 w-5 text-blue-600" /><h2 className="mt-2 text-[14px] font-bold">Region</h2><p className="mt-1 text-[12px] text-slate-500">Workspace region: local gateway.</p></Card>
         </div>
       </div>
       <DummyModal open={s3Open} title="Connect S3 Storage" description="Use any S3-compatible provider with custom endpoint support." onClose={() => setS3Open(false)}>
