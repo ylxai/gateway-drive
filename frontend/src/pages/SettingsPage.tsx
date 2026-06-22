@@ -6,7 +6,7 @@ import { DummyModal } from '@/components/drive/DummyModal'
 import { PageHeader } from '@/components/drive/PageHeader'
 import { apiFetch, formatBytes } from '@/lib/api'
 import { getGravatarUrl } from '@/lib/gravatar'
-import { getStoredUser } from '@/lib/auth'
+import { getStoredUser, getAccessToken, clearAuthSession } from '@/lib/auth'
 
 type ConnectedAccount = { id: string; provider: string; email: string; displayName?: string | null; status: string; storageAccount?: { totalBytes: string | null; usedBytes: string; availableBytes: string | null; lastSyncedAt: string | null } | null }
 
@@ -59,6 +59,93 @@ export function SettingsPage() {
   const [updateSuccess, setUpdateSuccess] = useState<boolean | null>(null)
   const [reconnectCount, setReconnectCount] = useState(0)
   const logContainerRef = useRef<HTMLDivElement>(null)
+
+  // Backup & Restore states
+  const [downloadingBackup, setDownloadingBackup] = useState(false)
+  const [restoringBackup, setRestoringBackup] = useState(false)
+  const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restoreMessage, setRestoreMessage] = useState('')
+  const [restoreSuccess, setRestoreSuccess] = useState(false)
+
+  async function downloadBackup() {
+    setDownloadingBackup(true)
+    try {
+      const token = getAccessToken()
+      const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:4000'}/system/backup`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (!response.ok) {
+        throw new Error('Failed to retrieve database backup.')
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = '9drive-backup.db'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert('Failed to download backup: ' + err.message)
+    } finally {
+      setDownloadingBackup(false)
+    }
+  }
+
+  function handleRestoreFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files && e.target.files.length > 0) {
+      setRestoreFile(e.target.files[0])
+    } else {
+      setRestoreFile(null)
+    }
+  }
+
+  async function restoreBackup() {
+    if (!restoreFile) return
+    if (!confirm('WARNING: Restoring database will overwrite all your current configurations, connected accounts, virtual folders, and user accounts. The server will restart. Are you sure you want to proceed?')) {
+      return
+    }
+
+    setRestoringBackup(true)
+    setRestoreMessage('')
+    setRestoreSuccess(false)
+
+    try {
+      const token = getAccessToken()
+      const formData = new FormData()
+      formData.append('file', restoreFile)
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:4000'}/system/restore`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to restore database.')
+      }
+
+      setRestoreSuccess(true)
+      setRestoreMessage(data.message || 'Database restored successfully! Logging you out and reloading...')
+      
+      setTimeout(() => {
+        clearAuthSession()
+        window.location.href = '/login'
+      }, 4000)
+
+    } catch (err: any) {
+      setRestoreSuccess(false)
+      setRestoreMessage(err.message || 'Failed to restore database.')
+    } finally {
+      setRestoringBackup(false)
+    }
+  }
 
   useEffect(() => {
     if (!isPollingLog) return
@@ -426,6 +513,72 @@ export function SettingsPage() {
                 <RefreshCw className={updatingSystem ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
                 {updatingSystem ? 'Updating...' : 'Update Code'}
               </Button>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden p-3.5">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <Database className="h-5 w-5 text-blue-600" />
+                  <h2 className="text-[16px] font-bold">Backup & Restore Database</h2>
+                </div>
+                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">SQLite Local Database</span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Download Backup Section */}
+                <div className="rounded-xl bg-slate-50/50 p-4 border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold">Download Database Backup</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Save a copy of your active database containing accounts, virtual folders, file metadata, and configurations.
+                    </p>
+                  </div>
+                  <Button 
+                    className="mt-4 w-full"
+                    onClick={downloadBackup}
+                    disabled={downloadingBackup}
+                  >
+                    <HardDrive className="h-4 w-4" />
+                    {downloadingBackup ? 'Downloading...' : 'Download Backup'}
+                  </Button>
+                </div>
+
+                {/* Restore Backup Section */}
+                <div className="rounded-xl bg-slate-50/50 p-4 border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold">Restore Database Backup</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Upload a previously downloaded 9Drive backup file to replace the active database.
+                    </p>
+                  </div>
+                  
+                  <div className="mt-3.5 grid gap-2">
+                    <input 
+                      type="file" 
+                      accept=".db" 
+                      onChange={handleRestoreFileChange}
+                      className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                    />
+                    <Button 
+                      className="w-full"
+                      variant="danger"
+                      onClick={restoreBackup}
+                      disabled={!restoreFile || restoringBackup}
+                    >
+                      <RefreshCw className={restoringBackup ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                      {restoringBackup ? 'Restoring & Restarting...' : 'Restore Backup'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              
+              {restoreMessage && (
+                <p className={restoreSuccess ? "rounded-xl bg-emerald-50 p-3 text-xs font-semibold mt-1 text-emerald-700" : "rounded-xl bg-red-50 p-3 text-xs font-semibold mt-1 text-red-700"}>
+                  {restoreMessage}
+                </p>
+              )}
             </div>
           </Card>
         </div>
