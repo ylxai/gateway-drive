@@ -526,50 +526,71 @@ export function SettingsPage() {
                 <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">SQLite Local Database</span>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                {/* Download Backup Section */}
-                <div className="rounded-xl bg-slate-50/50 p-4 border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold">Download Database Backup</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Save a copy of your active database containing accounts, virtual folders, file metadata, and configurations.
-                    </p>
+              <div className="grid gap-5 sm:grid-cols-2">
+                {/* Download Backup Section (Translucent Green Glass) */}
+                <div className="rounded-2xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 dark:border-emerald-500/30 hover:border-emerald-500/40 hover:bg-emerald-500/10 transition-all duration-300 p-5 flex flex-col justify-between shadow-sm relative overflow-hidden group">
+                  <div className="flex items-start gap-4">
+                    <div className="h-10 w-10 shrink-0 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                      <HardDrive className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Download Database Backup</h3>
+                      <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 leading-normal">
+                        Save a copy of your active database containing accounts, virtual folders, file metadata, and configurations.
+                      </p>
+                    </div>
                   </div>
-                  <Button 
-                    className="mt-4 w-full"
+                  <button 
+                    className="mt-5 w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 border-0 transition-all duration-300 transform active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2 cursor-pointer"
                     onClick={downloadBackup}
                     disabled={downloadingBackup}
+                    style={{ color: '#ffffff' }}
                   >
-                    <HardDrive className="h-4 w-4" />
-                    {downloadingBackup ? 'Downloading...' : 'Download Backup'}
-                  </Button>
+                    <HardDrive className="h-4 w-4" style={{ color: '#ffffff' }} />
+                    <span style={{ color: '#ffffff' }}>{downloadingBackup ? 'Downloading...' : 'Download Backup'}</span>
+                  </button>
                 </div>
 
-                {/* Restore Backup Section */}
-                <div className="rounded-xl bg-slate-50/50 p-4 border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold">Restore Database Backup</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Upload a previously downloaded 9Drive backup file to replace the active database.
-                    </p>
+                {/* Restore Backup Section (Translucent Orange Glass) */}
+                <div className="rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 dark:border-amber-500/30 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all duration-300 p-5 flex flex-col justify-between shadow-sm relative overflow-hidden group">
+                  <div className="flex items-start gap-4">
+                    <div className="h-10 w-10 shrink-0 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                      <RefreshCw className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Restore Database Backup</h3>
+                      <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 leading-normal">
+                        Upload a previously downloaded 9Drive backup file to replace the active database.
+                      </p>
+                    </div>
                   </div>
                   
-                  <div className="mt-3.5 grid gap-2">
+                  <div className="mt-5 grid gap-3">
                     <input 
                       type="file" 
                       accept=".db" 
                       onChange={handleRestoreFileChange}
-                      className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                      className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-extrabold file:bg-amber-500/15 file:text-amber-700 dark:file:text-amber-300 hover:file:bg-amber-500/20 cursor-pointer border border-amber-500/20 dark:border-amber-500/30 rounded-xl p-1 bg-amber-500/5"
                     />
-                    <Button 
-                      className="w-full"
-                      variant="danger"
-                      onClick={restoreBackup}
-                      disabled={!restoreFile || restoringBackup}
-                    >
-                      <RefreshCw className={restoringBackup ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                      {restoringBackup ? 'Restoring & Restarting...' : 'Restore Backup'}
-                    </Button>
+                    {restoreFile ? (
+                      <button 
+                        className="w-full h-11 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold shadow-md shadow-amber-500/10 hover:shadow-amber-500/20 border-0 transition-all duration-300 transform active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2 cursor-pointer"
+                        onClick={restoreBackup}
+                        disabled={restoringBackup}
+                        style={{ color: '#ffffff' }}
+                      >
+                        <RefreshCw className={restoringBackup ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} style={{ color: '#ffffff' }} />
+                        <span style={{ color: '#ffffff' }}>{restoringBackup ? 'Restoring & Restarting...' : 'Restore Backup'}</span>
+                      </button>
+                    ) : (
+                      <button 
+                        className="w-full h-11 rounded-xl bg-slate-100 dark:bg-slate-800/50 text-slate-400 dark:text-slate-600 border border-slate-200/50 dark:border-slate-800/50 cursor-not-allowed flex items-center justify-center gap-2"
+                        disabled
+                      >
+                        <RefreshCw className="h-4 w-4 text-slate-400 dark:text-slate-600" />
+                        <span>Restore Backup</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
