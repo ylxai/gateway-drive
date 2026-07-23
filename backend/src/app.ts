@@ -1,4 +1,5 @@
 import cors from 'cors'
+import cookieParser from 'cookie-parser'
 import express from 'express'
 import { env } from './config/env.js'
 import { errorMiddleware } from './middleware/error.middleware.js'
@@ -20,7 +21,8 @@ import { generalLimiter, authLimiter, uploadLimiter } from './middleware/rate-li
 export const app = express()
 app.set('trust proxy', true)
 
-app.use(cors({ origin: env.FRONTEND_URL }))
+app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
+app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))

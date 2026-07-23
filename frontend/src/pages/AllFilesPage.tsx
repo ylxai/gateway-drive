@@ -422,7 +422,7 @@ export function AllFilesPage() {
 
   async function downloadFile() {
     if (!activeFile?.id) return
-    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` }, credentials: 'include' })
     if (!response.ok) throw new Error('Download failed')
     const blob = await response.blob()
     const url = URL.createObjectURL(blob)
@@ -446,7 +446,8 @@ export function AllFilesPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${getAccessToken()}`
         },
-        body: JSON.stringify({ fileIds: selectedIds })
+        body: JSON.stringify({ fileIds: selectedIds }),
+        credentials: 'include'
       })
       if (!response.ok) throw new Error('Failed to download ZIP file')
       const blob = await response.blob()
