@@ -401,7 +401,7 @@ Token preview yang bocor memberikan full file streaming selama 10 menit. Tidak a
 |---|---|---|---|
 | **P0** | `fix/upload-memory-leak` | Stream langsung ke Google/S3, hapus Buffer.concat | ✅ Selesai |
 | **P0** | `fix/auto-public-permission` | Hapus `anyone:writer` otomatis | ✅ Selesai |
-| **P0** | `fix/security-rate-limit` | Tambahkan rate limiting di semua route | ✅ Branch dibuat |
+| **P0** | `fix/security-rate-limit` | Tambahkan rate limiting di semua route | ✅ Selesai |
 | **P0** | `fix/inconsistency-db-provider` | Perbaiki backup/restore untuk PostgreSQL | ✅ Branch dibuat |
 | **P1** | `fix/performance-batch-sync` | Batch DB writes di Google sync | ✅ Branch dibuat |
 | **P1** | `fix/performance-prisma-pool` | Konfigurasi connection pool Prisma | ✅ Branch dibuat |
