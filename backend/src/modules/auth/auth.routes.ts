@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Response, type Request } from 'express'
 import { google } from 'googleapis'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
@@ -10,6 +10,27 @@ import { signAccessToken } from '../../utils/jwt.js'
 import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
 
 export const authRouter = Router()
+
+const REFRESH_COOKIE = '9drive_refresh'
+const REFRESH_COOKIE_TTL_MS = env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+
+function setRefreshCookie(res: Response, refreshToken: string) {
+  res.cookie(REFRESH_COOKIE, refreshToken, {
+    httpOnly: true,
+    secure: env.FRONTEND_URL.startsWith('https'),
+    sameSite: 'lax',
+    maxAge: REFRESH_COOKIE_TTL_MS,
+    path: '/auth',
+  })
+}
+
+function clearRefreshCookie(res: Response) {
+  res.clearCookie(REFRESH_COOKIE, { path: '/auth' })
+}
+
+function getRefreshCookie(req: Request) {
+  return (req as any).cookies?.[REFRESH_COOKIE] as string | undefined
+}
 
 const registerSchema = z.object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8), captchaToken: z.string().optional() })
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) })
@@ -48,7 +69,8 @@ authRouter.post('/register', async (req, res, next) => {
     if (existing) return res.status(409).json({ code: 'AUTH_EMAIL_TAKEN', message: 'Email already registered.' })
     const user = await prisma.user.create({ data: { name: body.name, email: body.email, passwordHash: await hashPassword(body.password) } })
     const tokens = await createSession(user.id, req)
-    return res.status(201).json({ ...tokens, user: { id: user.id, name: user.name, email: user.email } })
+    setRefreshCookie(res, tokens.refreshToken)
+    return res.status(201).json({ accessToken: tokens.accessToken, user: { id: user.id, name: user.name, email: user.email } })
   } catch (error) {
     return next(error)
   }
@@ -60,7 +82,8 @@ authRouter.post('/login', async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { email: body.email } })
     if (!user || !(await verifyPassword(user.passwordHash, body.password))) return res.status(401).json({ code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid email or password.' })
     const tokens = await createSession(user.id, req)
-    return res.json({ ...tokens, user: { id: user.id, name: user.name, email: user.email } })
+    setRefreshCookie(res, tokens.refreshToken)
+    return res.json({ accessToken: tokens.accessToken, user: { id: user.id, name: user.name, email: user.email } })
   } catch (error) {
     return next(error)
   }
@@ -161,7 +184,8 @@ authRouter.post('/google/exchange', async (req, res, next) => {
     if (!handoff) return res.status(401).json({ code: 'AUTH_GOOGLE_HANDOFF_INVALID', message: 'Google login session expired.' })
     await prisma.authHandoff.update({ where: { id: handoff.id }, data: { usedAt: new Date() } })
     const tokens = await createSession(handoff.userId, req)
-    return res.json({ ...tokens, user: { id: handoff.user.id, name: handoff.user.name, email: handoff.user.email } })
+    setRefreshCookie(res, tokens.refreshToken)
+    return res.json({ accessToken: tokens.accessToken, user: { id: handoff.user.id, name: handoff.user.name, email: handoff.user.email } })
   } catch (error) {
     return next(error)
   }
@@ -169,8 +193,9 @@ authRouter.post('/google/exchange', async (req, res, next) => {
 
 authRouter.post('/refresh', async (req, res, next) => {
   try {
-    const body = refreshSchema.parse(req.body)
-    const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: hashToken(body.refreshToken), revokedAt: null, expiresAt: { gt: new Date() } } })
+    const refreshToken = getRefreshCookie(req) ?? refreshSchema.parse(req.body).refreshToken
+    if (!refreshToken) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
+    const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: hashToken(refreshToken), revokedAt: null, expiresAt: { gt: new Date() } } })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
     return res.json({ accessToken: signAccessToken({ sub: session.userId, sid: session.id }) })
   } catch (error) {
@@ -181,6 +206,7 @@ authRouter.post('/refresh', async (req, res, next) => {
 authRouter.post('/logout', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     await prisma.userSession.update({ where: { id: req.user!.sessionId }, data: { revokedAt: new Date() } })
+    clearRefreshCookie(res)
     return res.json({ status: 'ok' })
   } catch (error) {
     return next(error)

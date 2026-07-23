@@ -78,7 +78,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           'Content-Range': `bytes ${startOffset}-${endOffset - 1}/${file.size}`,
           'Content-Length': String(chunk.size)
         },
-        body: chunk
+        body: chunk,
+        credentials: 'include'
       })
 
       if (!response.ok) {
