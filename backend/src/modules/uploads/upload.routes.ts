@@ -119,6 +119,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     const completed: Array<Record<string, unknown>> = []
     const failed: Array<{ fileName: string; code: string; message: string }> = []
     const pendingUploads: Array<Promise<void>> = []
+    const syncedAccountIds = new Set<string>()
 
     const fail = async (status: number, code: string, message: string) => {
       if (responded) return
@@ -253,8 +254,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           completed.push({ ...file, sizeBytes: file.sizeBytes.toString() })
         }
         await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
-        if (account.provider === 's3') syncS3Quota(account.id).catch(() => undefined)
-        else syncQuotaInBackground(account.id, session.id)
+        syncedAccountIds.add(account.id)
       } catch (error) {
         fileStream.resume()
         logUpload('file upload failed', { fileName, message: error instanceof Error ? error.message : 'Upload failed' })
@@ -289,6 +289,12 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         if (responded) return
         responded = true
         logUpload('response sent', { completed: completed.length, failed: failed.length })
+
+        // Sync quotas once per account after batch completes
+        for (const accountId of syncedAccountIds) {
+          syncGoogleQuota(accountId).catch((err) => logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' }))
+        }
+
         if (completed.length === 0) return res.status(400).json({ code: failed[0]?.code ?? 'UPLOAD_FAILED', message: failed[0]?.message ?? 'Upload failed', failed })
         if (!batchMeta && completed.length === 1 && failed.length === 0) return res.status(201).json({ file: completed[0] })
         return res.status(201).json({ files: completed, failed })
