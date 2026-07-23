@@ -15,6 +15,7 @@ import { apiKeyRouter } from './modules/api-keys/api-key.routes.js'
 import { publicApiRouter } from './modules/public-api/public-api.routes.js'
 import { auditLogRouter } from './modules/audit-logs/audit-log.routes.js'
 import { systemRouter } from './modules/system/system.routes.js'
+import { generalLimiter, authLimiter, uploadLimiter } from './middleware/rate-limit.middleware.js'
 
 export const app = express()
 app.set('trust proxy', true)
@@ -23,14 +24,17 @@ app.use(cors({ origin: env.FRONTEND_URL }))
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+
+app.use(generalLimiter)
+
 app.use('/api', publicApiRouter)
 app.use('/public', publicRouter)
-app.use('/auth', authRouter)
+app.use('/auth', authLimiter, authRouter)
 app.use('/api-keys', apiKeyRouter)
 app.use('/provider-configs', providerConfigRouter)
 app.use('/connected-accounts', connectedAccountRouter)
 app.use('/storage', storageRouter)
-app.use('/uploads', uploadRouter)
+app.use('/uploads', uploadLimiter, uploadRouter)
 app.use('/files', fileRouter)
 app.use('/folders', folderRouter)
 app.use('/invites', inviteRouter)
