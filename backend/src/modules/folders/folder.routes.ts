@@ -273,6 +273,17 @@ folderRouter.delete('/:id', async (req: AuthRequest, res, next) => {
     }
 
     const files = await prisma.file.findMany({ where: { userId: req.user!.id, status: 'active', folderId: { in: [...folderIds] } }, include: { connectedAccount: true } })
+    const folderIdArr = [...folderIds]
+    const fileIds = files.map((file) => file.id)
+
+    // Phase 1: Mark DB records as deleted atomically. If this succeeds, the user's
+    // intent is persisted. Google Drive cleanup is best-effort (Phase 2).
+    await prisma.$transaction([
+      prisma.file.updateMany({ where: { id: { in: fileIds } }, data: { status: 'deleted', deletedAt: new Date() } }),
+      prisma.folder.updateMany({ where: { id: { in: folderIdArr }, userId: req.user!.id }, data: { deletedAt: new Date() } }),
+    ])
+
+    // Phase 2: Best-effort Google Drive cleanup
     const syncedAccountIds = new Set<string>()
     for (const file of files) {
       try {
@@ -281,12 +292,11 @@ folderRouter.delete('/:id', async (req: AuthRequest, res, next) => {
         await drive.files.delete({ fileId: file.providerFileId })
         syncedAccountIds.add(file.connectedAccountId)
       } catch {
-        // Keep going so one failure does not block the whole deletion
+        // Continue on failure — DB already reflects the deletion
       }
     }
 
-    // Delete folders on Google Drive
-    const foldersToDelete = await prisma.folder.findMany({ where: { id: { in: [...folderIds] }, userId: req.user!.id }, include: { connectedAccount: true } })
+    const foldersToDelete = await prisma.folder.findMany({ where: { id: { in: folderIdArr }, userId: req.user!.id }, include: { connectedAccount: true } })
     for (const f of foldersToDelete) {
       if (f.providerFolderId && f.connectedAccount) {
         try {
@@ -300,8 +310,6 @@ folderRouter.delete('/:id', async (req: AuthRequest, res, next) => {
       }
     }
 
-    await prisma.file.updateMany({ where: { id: { in: files.map((file) => file.id) } }, data: { status: 'deleted', deletedAt: new Date() } })
-    await prisma.folder.updateMany({ where: { id: { in: [...folderIds] }, userId: req.user!.id }, data: { deletedAt: new Date() } })
     for (const accountId of syncedAccountIds) await syncGoogleQuota(accountId).catch(() => undefined)
 
     await createAuditLog(req.user!.id, 'DELETE_FOLDER', 'folder', root.id, { name: root.name })
