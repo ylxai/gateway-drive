@@ -1,7 +1,7 @@
 import Busboy from 'busboy'
 import type { NextFunction, Response } from 'express'
 import { Router } from 'express'
-import { Readable } from 'stream'
+import { Transform } from 'stream'
 import { z } from 'zod'
 import { google } from 'googleapis'
 import { env } from '../../config/env.js'
@@ -178,16 +178,17 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
 
         const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, folderId, fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' } })
         logUpload('file upload started', { sessionId: session.id, accountId: account.id, fileName, sizeBytes: meta.sizeBytes.toString() })
-        const chunks: Buffer[] = []
-        fileStream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk)
+
+        // Track streamed bytes using a PassThrough with counter — no memory buffering
+        let streamedBytes = 0n
+        const byteCounter = new Transform({
+          transform(chunk, _encoding, callback) {
+            streamedBytes += BigInt(chunk.length)
+            this.push(chunk)
+            callback()
+          },
         })
-        await new Promise<void>((resolve, reject) => {
-          fileStream.on('end', resolve)
-          fileStream.on('error', reject)
-        })
-        const fileBuffer = Buffer.concat(chunks)
-        const streamedBytes = BigInt(fileBuffer.length)
+        fileStream.pipe(byteCounter)
 
         let providerFileId = ''
         let s3FileId: string | null = null
@@ -200,7 +201,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           })
           s3FileId = provisionalFile.id
           providerFileId = buildS3ObjectKey(config, req.user!.id, provisionalFile.id, fileName)
-          await uploadS3Object(config, providerFileId, Readable.from(fileBuffer), meta.mimeType)
+          await uploadS3Object(config, providerFileId, byteCounter, meta.mimeType)
           await prisma.file.update({ where: { id: provisionalFile.id }, data: { providerFileId, status: 'active' } })
           completed.push({ ...provisionalFile, providerFileId, status: 'active', sizeBytes: provisionalFile.sizeBytes.toString() })
           logUpload('s3 upload completed', { sessionId: session.id, accountId: account.id, fileName })
@@ -217,7 +218,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           }
           const uploaded = await drive.files.create({
             requestBody: { name: fileName, parents: [targetParentId] },
-            media: { mimeType: meta.mimeType, body: Readable.from(fileBuffer) },
+            media: { mimeType: meta.mimeType, body: byteCounter },
             fields: 'id,name,mimeType,size',
           })
           providerFileId = uploaded.data.id ?? ''
