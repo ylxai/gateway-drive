@@ -73,7 +73,9 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
       res.end()
       return
     }
-    res.write(Buffer.from(value))
+    if (!res.write(Buffer.from(value))) {
+      await new Promise<void>((resolve) => res.once('drain', resolve))
+    }
     return pump()
   }
   return pump()
