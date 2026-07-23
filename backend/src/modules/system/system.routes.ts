@@ -5,7 +5,7 @@ import fs from 'fs'
 import { requireAuth } from '../../middleware/auth.middleware.js'
 import { prisma } from '../../config/prisma.js'
 import { decryptText, encryptText } from '../../utils/crypto.js'
-import Busboy from 'busboy'
+import { env } from '../../config/env.js'
 
 export const systemRouter = Router()
 
@@ -200,121 +200,49 @@ systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
   }
 })
 
-systemRouter.get('/backup', requireAuth, (req, res, next) => {
+systemRouter.get('/backup', requireAuth, (_req, res, next) => {
   try {
-    const dbPath = getDatabaseFilePath()
-    if (!fs.existsSync(dbPath)) {
-      return res.status(404).json({ code: 'NOT_FOUND', message: 'Database file not found.' })
+    // Parse DATABASE_URL to extract connection parameters for pg_dump
+    const dbUrl = env.DATABASE_URL
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    if (!match) {
+      return res.status(400).json({
+        code: 'UNSUPPORTED_DATABASE',
+        message: 'Automatic backup is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+      })
     }
-    res.setHeader('Content-Disposition', 'attachment; filename=9drive-backup.db')
-    res.setHeader('Content-Type', 'application/octet-stream')
-    const fileStream = fs.createReadStream(dbPath)
-    fileStream.pipe(res)
+    const [, user, password, host, port, dbname] = match
+
+    return res.json({
+      status: 'ok',
+      message: 'To backup your PostgreSQL database, run the following command on your server:',
+      command: `PGPASSWORD='${password}' pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -F c -f 9drive-backup.dump`,
+      note: 'For security, the password is included in this command. Do not share this output. You can also set the PGPASSWORD environment variable separately.'
+    })
   } catch (error) {
     return next(error)
   }
 })
 
-systemRouter.post('/restore', requireAuth, (req, res, next) => {
+systemRouter.post('/restore', requireAuth, (_req, res, next) => {
   try {
-    const contentType = req.headers['content-type']
-    if (!contentType?.includes('multipart/form-data')) {
-      return res.status(400).json({ code: 'BAD_REQUEST', message: 'multipart/form-data required.' })
+    const dbUrl = env.DATABASE_URL
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    if (!match) {
+      return res.status(400).json({
+        code: 'UNSUPPORTED_DATABASE',
+        message: 'Automatic restore is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+      })
     }
+    const [, user, password, host, port, dbname] = match
 
-    const busboy = Busboy({ headers: req.headers, limits: { files: 1 } })
-    let fileReceived = false
-
-    busboy.on('file', (name, fileStream, info) => {
-      fileReceived = true
-      const dbPath = getDatabaseFilePath()
-      const tempDbPath = dbPath + '.tmp'
-      const writeStream = fs.createWriteStream(tempDbPath)
-
-      fileStream.pipe(writeStream)
-
-      writeStream.on('finish', async () => {
-        try {
-          // Disconnect prisma client first to release database lock
-          await prisma.$disconnect()
-
-          // Replace old database file with restored database file
-          fs.renameSync(tempDbPath, dbPath)
-
-          res.json({
-            status: 'success',
-            message: 'Database restored successfully. Server will restart in 2 seconds.'
-          })
-
-          // Graceful exit after response is sent
-          setTimeout(() => {
-            console.log('Database restored. Exiting to allow PM2 restart.')
-            process.exit(0)
-          }, 2000)
-
-        } catch (err: any) {
-          if (fs.existsSync(tempDbPath)) {
-            try { fs.unlinkSync(tempDbPath) } catch {}
-          }
-          console.error('Failed to restore database:', err)
-          return res.status(500).json({
-            code: 'RESTORE_FAILED',
-            message: 'Failed to restore database.',
-            error: err.message
-          })
-        }
-      })
-
-      writeStream.on('error', (err) => {
-        if (fs.existsSync(tempDbPath)) {
-          try { fs.unlinkSync(tempDbPath) } catch {}
-        }
-        console.error('Write error on temp DB:', err)
-        return res.status(500).json({
-          code: 'WRITE_ERROR',
-          message: 'Failed to write temporary database file.',
-          error: err.message
-        })
-      })
+    return res.json({
+      status: 'ok',
+      message: 'To restore your PostgreSQL database, upload your dump file to the server and run:',
+      command: `PGPASSWORD='${password}' pg_restore -h ${host} -p ${port} -U ${user} -d ${dbname} --clean --if-exists 9drive-backup.dump`,
+      note: 'IMPORTANT: This will overwrite your existing database. Make sure to backup first. The --clean flag drops existing tables before restoring. For security, do not share this command output.'
     })
-
-    busboy.on('error', (err) => {
-      console.error('Busboy error:', err)
-      if (!res.headersSent) {
-        next(err)
-      }
-    })
-
-    busboy.on('finish', () => {
-      if (!fileReceived && !res.headersSent) {
-        return res.status(400).json({ code: 'BAD_REQUEST', message: 'No file uploaded.' })
-      }
-    })
-
-    req.pipe(busboy)
   } catch (error) {
     return next(error)
   }
 })
-
-function getDatabaseFilePath(): string {
-  const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
-  let cleanPath = dbUrl.replace(/^(sqlite|file):/, '')
-
-  if (cleanPath.includes('?')) {
-    cleanPath = cleanPath.split('?')[0]
-  }
-
-  if (!path.isAbsolute(cleanPath)) {
-    let baseDir = path.resolve(process.cwd(), 'prisma')
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), 'backend', 'prisma')
-    }
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), '..', 'backend', 'prisma')
-    }
-    return path.resolve(baseDir, cleanPath)
-  }
-
-  return cleanPath
-}
