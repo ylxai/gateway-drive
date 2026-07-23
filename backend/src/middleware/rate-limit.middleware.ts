@@ -2,7 +2,7 @@ import rateLimit from 'express-rate-limit'
 
 /**
  * General API rate limiter — 100 requests per 15 minutes per IP.
- * Applied to all authenticated routes.
+ * Applied globally to all routes except /health.
  */
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
