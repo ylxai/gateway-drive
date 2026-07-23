@@ -87,7 +87,7 @@ function SystemInfoDropdown({ storage }: { storage: any }) {
         <div>
           <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5 text-blue-500" /> Storage Engine</h4>
           <div className="mt-2 text-xs text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-            <p>• <b>DB Type:</b> SQLite (Local Database)</p>
+            <p>• <b>DB Type:</b> PostgreSQL</p>
             <p>• <b>Upload Folder:</b> Google Drive dedicated <code>9drive</code></p>
             <p>• <b>Max Upload Size:</b> 5 GB per stream</p>
           </div>
