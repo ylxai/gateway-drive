@@ -1,16 +1,16 @@
 import { PrismaClient } from '@prisma/client'
+import { env } from './env.js'
 
-const CONNECTION_LIMIT = 10
+const connectionLimit = parseInt(process.env.PRISMA_CONNECTION_LIMIT || '10', 10)
 
-const dbUrl = process.env.DATABASE_URL!
-const poolUrl = dbUrl.includes('?')
-  ? `${dbUrl}&connection_limit=${CONNECTION_LIMIT}`
-  : `${dbUrl}?connection_limit=${CONNECTION_LIMIT}`
+const dbUrl = env.DATABASE_URL
+const poolUrl = new URL(dbUrl)
+poolUrl.searchParams.set('connection_limit', String(connectionLimit))
 
 export const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: poolUrl,
+      url: poolUrl.toString(),
     },
   },
 })
