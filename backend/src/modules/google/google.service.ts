@@ -150,14 +150,13 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
   let deleted = 0
 
   const folderIdMap = new Map(userFolders.map((f) => [f.providerFolderId, f.id]))
+  const toCreate: Array<{ userId: string; connectedAccountId: string; provider: string; providerFileId: string; name: string; mimeType: string; sizeBytes: bigint; status: string; folderId: string | null }> = []
 
   for (const driveFile of driveFiles) {
     const dbFolderId = driveFile.parentId === appFolderId ? null : (folderIdMap.get(driveFile.parentId) ?? null)
     const existing = existingByProviderId.get(driveFile.id)
     if (!existing) {
-      await prisma.file.create({
-        data: { userId, connectedAccountId: account.id, provider: 'google_drive', providerFileId: driveFile.id, name: driveFile.name, mimeType: driveFile.mimeType, sizeBytes: driveFile.sizeBytes, status: 'active', folderId: dbFolderId },
-      })
+      toCreate.push({ userId, connectedAccountId: account.id, provider: 'google_drive', providerFileId: driveFile.id, name: driveFile.name, mimeType: driveFile.mimeType, sizeBytes: driveFile.sizeBytes, status: 'active', folderId: dbFolderId })
       created += 1
       continue
     }
@@ -170,6 +169,10 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
       })
       updated += 1
     }
+  }
+
+  if (toCreate.length > 0) {
+    await prisma.file.createMany({ data: toCreate })
   }
 
   const missingActiveIds = existingFiles.filter((file) => file.status === 'active' && !driveFileIds.has(file.providerFileId)).map((file) => file.id)
