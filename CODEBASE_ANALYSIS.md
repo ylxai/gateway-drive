@@ -403,13 +403,13 @@ Token preview yang bocor memberikan full file streaming selama 10 menit. Tidak a
 | **P0** | `fix/auto-public-permission` | Hapus `anyone:writer` otomatis | ✅ Selesai |
 | **P0** | `fix/security-rate-limit` | Tambahkan rate limiting di semua route | ✅ Selesai |
 | **P0** | `fix/inconsistency-db-provider` | Perbaiki backup/restore untuk PostgreSQL | ✅ Selesai |
-| **P1** | `fix/performance-batch-sync` | Batch DB writes di Google sync | ✅ Branch dibuat |
-| **P1** | `fix/performance-prisma-pool` | Konfigurasi connection pool Prisma | ✅ Branch dibuat |
-| **P1** | `fix/stream-backpressure` | Perbaiki backpressure di stream-google-file | ✅ Branch dibuat |
-| **P1** | `fix/security-httponly-cookie` | Pindahkan refresh token ke httpOnly cookie | ✅ Branch dibuat |
-| **P1** | `fix/performance-debounce-quota` | Debounce quota sync setelah batch upload | ✅ Branch dibuat |
-| **P1** | `fix/folder-delete-race-condition` | Gunakan transaksi untuk folder delete | ✅ Branch dibuat |
-| **P1** | `fix/memory-leak-zip-stream` | Tambahkan req.on('close') di zip download | ✅ Branch dibuat |
+| **P1** | `fix/performance-batch-sync` | Batch DB writes di Google sync | ✅ Selesai |
+| **P1** | `fix/performance-prisma-pool` | Konfigurasi connection pool Prisma | ✅ Selesai |
+| **P1** | `fix/stream-backpressure` | Perbaiki backpressure di stream-google-file | ✅ Selesai |
+| **P1** | `fix/security-httponly-cookie` | Pindahkan refresh token ke httpOnly cookie | ✅ Selesai |
+| **P1** | `fix/performance-debounce-quota` | Debounce quota sync setelah batch upload | ✅ Selesai |
+| **P1** | `fix/folder-delete-race-condition` | Gunakan transaksi untuk folder delete | ✅ Selesai |
+| **P1** | `fix/memory-leak-zip-stream` | Tambahkan req.on('close') di zip download | ✅ Selesai |
 | **P2** | `fix/zip-download-corruption` | Perbaiki korupsi ZIP Google Workspace | ✅ Branch dibuat |
 | **P2** | `fix/auth-token-revocation` | Token blacklist/invalidate pada refresh | ✅ Branch dibuat |
 | **P2** | `fix/security-preview-token` | Pisahkan scope view/download, perpendek TTL | ✅ Branch dibuat |
