@@ -409,13 +409,23 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', 'attachment; filename="9drive-download.zip"')
 
+    let aborted = false
     const archive = new ZipArchive({ zlib: { level: 9 } })
+
+    // Clean up if client disconnects
+    const onClose = () => {
+      aborted = true
+      archive.abort()
+    }
+    req.on('close', onClose)
+
     archive.on('error', (err: any) => {
-      throw err
+      if (!aborted) throw err
     })
     archive.pipe(res)
 
     for (const file of files) {
+      if (aborted) break
       try {
         let stream: Readable
         let fileName = file.name
@@ -444,7 +454,8 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
       }
     }
 
-    await archive.finalize()
+    if (!aborted) await archive.finalize()
+    req.removeListener('close', onClose)
   } catch (error) {
     return next(error)
   }
