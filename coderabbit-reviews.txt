@@ -1,0 +1,98 @@
+=== CodeRabbit: fix/upload-memory-leak ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/upload-memory-leak","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"status","phase":"analyzing","status":"promo_credits_granted","message":"$25 in free promotional credits have been added to your account for additional reviews. These credits expire after 7 days. To purchase more, visit [billing](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)."}
+{"type":"status","phase":"analyzing","status":"summarizing"}
+{"type":"status","phase":"analyzing","status":"reviewing"}
+{"type":"heartbeat","status":"reviewing"}
+{"type":"heartbeat","status":"reviewing"}
+{"type":"complete","status":"review_completed","findings":0,"reviewedFiles":["backend/src/modules/uploads/upload.routes.ts"]}
+
+---
+
+=== CodeRabbit: fix/auto-public-permission ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/auto-public-permission","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"status","phase":"analyzing","status":"summarizing"}
+{"type":"status","phase":"analyzing","status":"reviewing"}
+{"type":"complete","status":"review_completed","findings":0,"reviewedFiles":["backend/src/modules/files/file.routes.ts","backend/src/modules/uploads/upload.routes.ts"]}
+
+---
+
+=== CodeRabbit: fix/security-rate-limit ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/security-rate-limit","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"status","phase":"analyzing","status":"summarizing"}
+{"type":"status","phase":"analyzing","status":"reviewing"}
+{"type":"heartbeat","status":"reviewing"}
+{"type":"complete","status":"review_completed","findings":0,"reviewedFiles":["backend/package-lock.json","backend/package.json","backend/src/app.ts","backend/src/middleware/rate-limit.middleware.ts"]}
+
+---
+
+=== CodeRabbit: fix/inconsistency-db-provider ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/inconsistency-db-provider","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/performance-batch-sync ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/performance-batch-sync","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/performance-prisma-pool ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/performance-prisma-pool","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/stream-backpressure ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/stream-backpressure","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/performance-debounce-quota ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/performance-debounce-quota","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/folder-delete-race-condition ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/folder-delete-race-condition","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/memory-leak-zip-stream ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/memory-leak-zip-stream","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+
+=== CodeRabbit: fix/security-httponly-cookie ===
+{"type":"review_context","reviewType":"all","currentBranch":"fix/security-httponly-cookie","baseBranch":"main","workingDirectory":"/home/ubuntu/9drive"}
+{"type":"status","phase":"connecting","status":"connecting_to_review_service"}
+{"type":"status","phase":"setup","status":"setting_up"}
+{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true,"details":{},"metadata":{"isProUser":false,"waitTime":"56 minutes","policyGuidance":"Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=8272493b-7706-41f7-9e46-4b634718c870)** in Billing to review now. Otherwise, wait until the next included review is available.\nYou're only billed for reviews past your plan's rate limits ($0.25/file).","orgAttributed":true,"cliReviewPolicyMode":"normal"}}
+
+---
+

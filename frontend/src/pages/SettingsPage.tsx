@@ -523,7 +523,7 @@ export function SettingsPage() {
                   <Database className="h-5 w-5 text-blue-600" />
                   <h2 className="text-[16px] font-bold">Backup & Restore Database</h2>
                 </div>
-                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">SQLite Local Database</span>
+                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">PostgreSQL Database</span>
               </div>
 
               <div className="grid gap-5 sm:grid-cols-2">
