@@ -67,15 +67,22 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
     return
   }
   const reader = response.body.getReader()
+  let closed = false
+  res.once('close', () => { closed = true })
   async function pump(): Promise<void> {
+    if (closed || res.writableEnded || res.destroyed) return
     const { done, value } = await reader.read()
     if (done) {
-      res.end()
+      if (!closed) res.end()
       return
     }
     if (!res.write(Buffer.from(value))) {
-      await new Promise<void>((resolve) => res.once('drain', resolve))
+      await new Promise<void>((resolve) => {
+        res.once('drain', resolve)
+        res.once('close', () => { closed = true; resolve() })
+      })
     }
+    if (closed) return
     return pump()
   }
   return pump()
