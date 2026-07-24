@@ -399,13 +399,18 @@ fileRouter.delete('/:id', async (req: AuthRequest, res, next) => {
 
 fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
   let finalized = false
+  let archive: ZipArchive | null = null
 
   function cleanup() {
+    if (finalized) return
     finalized = true
+    if (archive) {
+      try { archive.abort() } catch (_) { /* ignore */ }
+    }
     try { if (!res.writableEnded) res.end() } catch (_) { /* ignore */ }
   }
 
-  req.on('close', () => { if (!finalized) cleanup() })
+  req.on('close', cleanup)
 
   try {
     const body = batchFileSchema.parse(req.body)
@@ -418,18 +423,12 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', 'attachment; filename="9drive-download.zip"')
 
-    const archive = new ZipArchive({ zlib: { level: 9 } })
+    archive = new ZipArchive({ zlib: { level: 9 } })
     archive.on('error', (err: any) => {
-      if (!finalized) {
-        archive.unpipe(res)
-        cleanup()
-      }
       console.error('Zip archive error:', err)
+      cleanup()
     })
     archive.pipe(res)
-
-    // Track all append operations so we don't finalize prematurely
-    const pendingAppends: Promise<void>[] = []
 
     for (const file of files) {
       if (finalized) break
@@ -456,17 +455,9 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           stream = Readable.fromWeb(response.body as any)
         }
 
-        // Wait for each stream append to finish before proceeding
-        await new Promise<void>((resolve, reject) => {
-          stream.on('error', (err: Error) => reject(err))
-          archive.append(stream, { name: fileName }, (err: any) => {
-            if (err) reject(err)
-            else resolve()
-          })
-        })
+        archive!.append(stream, { name: fileName })
       } catch (err) {
         console.error(`Failed to add file ${file.name} to zip:`, err)
-        // Continue adding remaining files instead of corrupting the archive
       }
     }
 
@@ -474,14 +465,10 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
       await archive.finalize()
       finalized = true
     }
-
-    req.removeListener('close', cleanup)
   } catch (error) {
-    if (!finalized) {
-      try { archive.abort() } catch (_) { /* ignore */ }
-      cleanup()
-    }
-    req.removeListener('close', cleanup)
+    cleanup()
     return next(error)
+  } finally {
+    req.removeListener('close', cleanup)
   }
 })
