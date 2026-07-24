@@ -178,12 +178,12 @@ export function AllFilesPage() {
     setAllFolders(allData.folders.map(mapFolder))
   }
 
-  let lastLoadId = 0
+  const lastLoadId = useRef(0)
 
   async function loadAll() {
-    const loadId = ++lastLoadId
+    const loadId = ++lastLoadId.current
     const [filesResult, foldersResult] = await Promise.allSettled([loadFiles(), loadFolders()])
-    if (loadId !== lastLoadId) return
+    if (loadId !== lastLoadId.current) return
     if (filesResult.status === 'fulfilled') {
       // loadFiles already set files via state
     } else {
