@@ -195,11 +195,28 @@ authRouter.post('/refresh', async (req, res, next) => {
   try {
     const refreshToken = getRefreshCookie(req) ?? refreshSchema.parse(req.body).refreshToken
     if (!refreshToken) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
-    const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: hashToken(refreshToken), revokedAt: null, expiresAt: { gt: new Date() } } })
+    const tokenHash = hashToken(refreshToken)
+    const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: tokenHash, revokedAt: null, expiresAt: { gt: new Date() } } })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
 
-    await prisma.userSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
-    const tokens = await createSession(session.userId, req)
+    const tokens = await prisma.$transaction(async (tx) => {
+      await tx.userSession.update({
+        where: { id: session.id, refreshTokenHash: tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
+      const refreshToken = randomToken()
+      const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000)
+      const newSession = await tx.userSession.create({
+        data: {
+          userId: session.userId,
+          refreshTokenHash: hashToken(refreshToken),
+          userAgent: req.header('User-Agent'),
+          ipAddress: req.ip,
+          expiresAt,
+        },
+      })
+      return { accessToken: signAccessToken({ sub: session.userId, sid: newSession.id }), refreshToken }
+    })
 
     setRefreshCookie(res, tokens.refreshToken)
     return res.json({ accessToken: tokens.accessToken })
