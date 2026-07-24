@@ -197,7 +197,12 @@ authRouter.post('/refresh', async (req, res, next) => {
     if (!refreshToken) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
     const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: hashToken(refreshToken), revokedAt: null, expiresAt: { gt: new Date() } } })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
-    return res.json({ accessToken: signAccessToken({ sub: session.userId, sid: session.id }) })
+
+    await prisma.userSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+    const tokens = await createSession(session.userId, req)
+
+    setRefreshCookie(res, tokens.refreshToken)
+    return res.json({ accessToken: tokens.accessToken })
   } catch (error) {
     return next(error)
   }
