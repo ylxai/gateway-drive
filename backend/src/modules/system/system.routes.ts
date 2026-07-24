@@ -204,20 +204,20 @@ systemRouter.get('/backup', requireAuth, (_req, res, next) => {
   try {
     // Parse DATABASE_URL to extract connection parameters for pg_dump
     const dbUrl = env.DATABASE_URL
-    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/(.+)/)
     if (!match) {
       return res.status(400).json({
         code: 'UNSUPPORTED_DATABASE',
-        message: 'Automatic backup is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+        message: 'Automatic backup is only available for PostgreSQL.'
       })
     }
-    const [, user, password, host, port, dbname] = match
+    const [, user, host, port, dbname] = match
 
     return res.json({
       status: 'ok',
       message: 'To backup your PostgreSQL database, run the following command on your server:',
       command: `pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -F c -f backup.dump`,
-      note: 'For security, the password is included in this command. Do not share this output. You can also set the PGPASSWORD environment variable separately.'
+      note: 'Set the PGPASSWORD environment variable before running this command.'
     })
   } catch (error) {
     return next(error)
@@ -227,20 +227,20 @@ systemRouter.get('/backup', requireAuth, (_req, res, next) => {
 systemRouter.post('/restore', requireAuth, (_req, res, next) => {
   try {
     const dbUrl = env.DATABASE_URL
-    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/(.+)/)
     if (!match) {
       return res.status(400).json({
         code: 'UNSUPPORTED_DATABASE',
-        message: 'Automatic restore is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+        message: 'Automatic restore is only available for PostgreSQL.'
       })
     }
-    const [, user, password, host, port, dbname] = match
+    const [, user, host, port, dbname] = match
 
     return res.json({
       status: 'ok',
       message: 'To restore your PostgreSQL database, upload your dump file to the server and run:',
       command: `pg_restore -h ${host} -p ${port} -U ${user} -d ${dbname} --clean --if-exists backup.dump`,
-      note: 'IMPORTANT: This will overwrite your existing database. Make sure to backup first. The --clean flag drops existing tables before restoring. For security, do not share this command output.'
+      note: 'IMPORTANT: This will overwrite your existing database. Set the PGPASSWORD environment variable before running. Do not share this command output.'
     })
   } catch (error) {
     return next(error)
