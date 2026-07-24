@@ -11,16 +11,25 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
 
   if (!origin && !referer) return next()
 
-  const originHost = origin ? new URL(origin).origin : null
-  const refererHost = referer ? new URL(referer).origin : null
-  const frontendOrigin = new URL(env.FRONTEND_URL).origin
+  try {
+    const originHost = parseOrigin(origin)
+    const refererHost = parseOrigin(referer)
+    const frontendOrigin = parseOrigin(env.FRONTEND_URL)
 
-  if (originHost && originHost !== frontendOrigin) {
-    return res.status(403).json({ code: 'CSRF_ORIGIN_MISMATCH', message: 'Invalid origin.' })
-  }
-  if (!originHost && refererHost && refererHost !== frontendOrigin) {
-    return res.status(403).json({ code: 'CSRF_ORIGIN_MISMATCH', message: 'Invalid origin.' })
+    if (originHost && originHost !== frontendOrigin) {
+      return res.status(403).json({ code: 'CSRF_ORIGIN_MISMATCH', message: 'Invalid origin.' })
+    }
+    if (!originHost && refererHost && refererHost !== frontendOrigin) {
+      return res.status(403).json({ code: 'CSRF_ORIGIN_MISMATCH', message: 'Invalid origin.' })
+    }
+  } catch {
+    return res.status(403).json({ code: 'CSRF_INVALID_HEADER', message: 'Malformed request header.' })
   }
 
   next()
+}
+
+function parseOrigin(value: string | undefined) {
+  if (!value) return null
+  try { return new URL(value).origin } catch { return null }
 }
