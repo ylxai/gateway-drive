@@ -9,6 +9,7 @@ export const generalLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/health' || req.path === '/healthz',
   message: { code: 'RATE_LIMIT', message: 'Too many requests. Please try again later.' },
 })
 

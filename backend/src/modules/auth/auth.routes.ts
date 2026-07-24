@@ -29,7 +29,7 @@ function clearRefreshCookie(res: Response) {
 }
 
 function getRefreshCookie(req: Request) {
-  return (req as any).cookies?.[REFRESH_COOKIE] as string | undefined
+  return req.cookies?.[REFRESH_COOKIE] as string | undefined
 }
 
 const registerSchema = z.object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8), captchaToken: z.string().optional() })
