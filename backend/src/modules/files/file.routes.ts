@@ -355,6 +355,19 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
 
+    // Automatically set permission to public writer when retrieving/copying the view URL!
+    try {
+      await drive.permissions.create({
+        fileId: file.providerFileId,
+        requestBody: {
+          role: 'writer',
+          type: 'anyone'
+        }
+      })
+    } catch (err: any) {
+      console.error('Failed to make Google Drive file public during view-url retrieval:', err.message || err)
+    }
+
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
     return res.json({ url: metadata.data.webViewLink ?? metadata.data.webContentLink })
   } catch (error) {
@@ -385,6 +398,15 @@ fileRouter.delete('/:id', async (req: AuthRequest, res, next) => {
 })
 
 fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
+  let finalized = false
+
+  function cleanup() {
+    finalized = true
+    try { if (!res.writableEnded) res.end() } catch (_) { /* ignore */ }
+  }
+
+  req.on('close', () => { if (!finalized) cleanup() })
+
   try {
     const body = batchFileSchema.parse(req.body)
     const files = await prisma.file.findMany({
@@ -396,23 +418,21 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', 'attachment; filename="9drive-download.zip"')
 
-    let aborted = false
     const archive = new ZipArchive({ zlib: { level: 9 } })
-
-    // Clean up if client disconnects
-    const onClose = () => {
-      aborted = true
-      archive.abort()
-    }
-    req.on('close', onClose)
-
     archive.on('error', (err: any) => {
-      if (!aborted) throw err
+      if (!finalized) {
+        archive.unpipe(res)
+        cleanup()
+      }
+      console.error('Zip archive error:', err)
     })
     archive.pipe(res)
 
+    // Track all append operations so we don't finalize prematurely
+    const pendingAppends: Promise<void>[] = []
+
     for (const file of files) {
-      if (aborted) break
+      if (finalized) break
       try {
         let stream: Readable
         let fileName = file.name
@@ -435,15 +455,33 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           if (!response.ok || !response.body) continue
           stream = Readable.fromWeb(response.body as any)
         }
-        archive.append(stream, { name: fileName })
+
+        // Wait for each stream append to finish before proceeding
+        await new Promise<void>((resolve, reject) => {
+          stream.on('error', (err: Error) => reject(err))
+          archive.append(stream, { name: fileName }, (err: any) => {
+            if (err) reject(err)
+            else resolve()
+          })
+        })
       } catch (err) {
         console.error(`Failed to add file ${file.name} to zip:`, err)
+        // Continue adding remaining files instead of corrupting the archive
       }
     }
 
-    if (!aborted) await archive.finalize()
-    req.removeListener('close', onClose)
+    if (!finalized) {
+      await archive.finalize()
+      finalized = true
+    }
+
+    req.removeListener('close', cleanup)
   } catch (error) {
+    if (!finalized) {
+      try { archive.abort() } catch (_) { /* ignore */ }
+      cleanup()
+    }
+    req.removeListener('close', cleanup)
     return next(error)
   }
 })
