@@ -129,13 +129,17 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
       return res.status(status).json({ code, message })
     }
 
-    const parseBatchMeta = (value: string) => JSON.parse(value).map((item: { fieldName: string; fileName: string; mimeType: string; sizeBytes: string | number; folderId?: string }) => ({
-      fieldName: item.fieldName,
-      fileName: item.fileName,
-      mimeType: item.mimeType,
-      sizeBytes: BigInt(item.sizeBytes),
-      folderId: item.folderId,
-    })) as UploadMeta[]
+    const parseBatchMeta = (value: string) => {
+      try {
+        return JSON.parse(value).map((item: { fieldName: string; fileName: string; mimeType: string; sizeBytes: string | number; folderId?: string }) => {
+          let sizeBytes: bigint
+          try { sizeBytes = BigInt(item.sizeBytes) } catch { sizeBytes = 0n }
+          return { fieldName: item.fieldName, fileName: item.fileName, mimeType: item.mimeType, sizeBytes, folderId: item.folderId }
+        }) as UploadMeta[]
+      } catch {
+        return null
+      }
+    }
 
     const metaForFile = (fieldName: string, info: { filename: string; mimeType: string }) => {
       if (batchMeta) return batchMeta.find((item) => item.fieldName === fieldName)
@@ -250,11 +254,14 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     }
 
     busboy.on('field', (name, value) => {
-      if (name === 'sizeBytes') fields.sizeBytes = BigInt(value)
+      if (name === 'sizeBytes') try { fields.sizeBytes = BigInt(value) } catch { fields.sizeBytes = undefined }
       if (name === 'fileName') fields.fileName = value
       if (name === 'mimeType') fields.mimeType = value
       if (name === 'folderId') fields.folderId = value
-      if (name === 'filesMeta') batchMeta = parseBatchMeta(value)
+      if (name === 'filesMeta') {
+        const parsed = parseBatchMeta(value)
+        if (parsed) batchMeta = parsed
+      }
     })
 
     busboy.on('file', (name, fileStream, info) => {

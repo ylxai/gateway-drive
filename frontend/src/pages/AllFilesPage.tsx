@@ -178,8 +178,20 @@ export function AllFilesPage() {
     setAllFolders(allData.folders.map(mapFolder))
   }
 
+  let lastLoadId = 0
+
   async function loadAll() {
-    await Promise.all([loadFiles(), loadFolders()])
+    const loadId = ++lastLoadId
+    const [filesResult, foldersResult] = await Promise.allSettled([loadFiles(), loadFolders()])
+    if (loadId !== lastLoadId) return
+    if (filesResult.status === 'fulfilled') {
+      // loadFiles already set files via state
+    } else {
+      setMessage(`Failed to load files: ${filesResult.reason instanceof Error ? filesResult.reason.message : 'Unknown error'}`)
+    }
+    if (foldersResult.status === 'rejected') {
+      console.error('Failed to load folders:', foldersResult.reason)
+    }
   }
 
   async function handleDropItem(fileId: string, targetFolderId: string) {
@@ -203,7 +215,7 @@ export function AllFilesPage() {
   }
 
   useEffect(() => {
-    loadAll().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to load files'))
+    loadAll()
     setSelectedFileIds(new Set())
   }, [activeFolderId, searchQuery])
 
@@ -422,15 +434,19 @@ export function AllFilesPage() {
 
   async function downloadFile() {
     if (!activeFile?.id) return
-    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` }, credentials: 'include' })
-    if (!response.ok) throw new Error('Download failed')
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = activeFile.name
-    link.click()
-    URL.revokeObjectURL(url)
+    try {
+      const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` }, credentials: 'include' })
+      if (!response.ok) throw new Error('Download failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = activeFile.name
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Download failed')
+    }
     setContextMenu({ x: 0, y: 0, file: null })
   }
 
@@ -470,42 +486,58 @@ export function AllFilesPage() {
   async function renameFile(event: FormEvent) {
     event.preventDefault()
     if (!activeFile?.id) return
-    await apiFetch(`/files/${activeFile.id}`, { method: 'PATCH', body: JSON.stringify({ name: renameValue }) })
-    setRenameOpen(false)
-    await loadFiles()
+    try {
+      await apiFetch(`/files/${activeFile.id}`, { method: 'PATCH', body: JSON.stringify({ name: renameValue }) })
+      setRenameOpen(false)
+      await loadFiles()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Rename failed')
+    }
   }
 
   async function moveFile(event: FormEvent) {
     event.preventDefault()
-    const selectedIds = [...selectedFileIds]
-    if (selectedIds.length > 0) await apiFetch('/files/batch', { method: 'PATCH', body: JSON.stringify({ fileIds: selectedIds, folderId: selectedFolderId || null }) })
-    else if (activeFile?.id) await apiFetch(`/files/${activeFile.id}`, { method: 'PATCH', body: JSON.stringify({ folderId: selectedFolderId || null }) })
-    else return
-    setMoveOpen(false)
-    setSelectedFolderId('')
-    clearSelection()
-    await loadFiles()
+    try {
+      const selectedIds = [...selectedFileIds]
+      if (selectedIds.length > 0) await apiFetch('/files/batch', { method: 'PATCH', body: JSON.stringify({ fileIds: selectedIds, folderId: selectedFolderId || null }) })
+      else if (activeFile?.id) await apiFetch(`/files/${activeFile.id}`, { method: 'PATCH', body: JSON.stringify({ folderId: selectedFolderId || null }) })
+      else return
+      setMoveOpen(false)
+      setSelectedFolderId('')
+      clearSelection()
+      await loadFiles()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Move failed')
+    }
   }
 
   async function deleteFile() {
-    const selectedIds = [...selectedFileIds]
-    if (selectedIds.length > 0) await apiFetch('/files/batch', { method: 'DELETE', body: JSON.stringify({ fileIds: selectedIds }) })
-    else if (activeFile?.id) await apiFetch(`/files/${activeFile.id}`, { method: 'DELETE' })
-    else return
-    setDeleteOpen(false)
-    clearSelection()
-    await loadFiles()
-    window.dispatchEvent(new Event('9drive:storage-changed'))
+    try {
+      const selectedIds = [...selectedFileIds]
+      if (selectedIds.length > 0) await apiFetch('/files/batch', { method: 'DELETE', body: JSON.stringify({ fileIds: selectedIds }) })
+      else if (activeFile?.id) await apiFetch(`/files/${activeFile.id}`, { method: 'DELETE' })
+      else return
+      setDeleteOpen(false)
+      clearSelection()
+      await loadFiles()
+      window.dispatchEvent(new Event('9drive:storage-changed'))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Delete failed')
+    }
   }
 
   async function shareFile() {
     if (!activeFile?.id) return
-    const data = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
-    setShareUrl(data.url)
-    setCopiedShareLink(false)
-    setGdrivePublicUrl('')
-    setMakingPublic(false)
-    setShareOpen(true)
+    try {
+      const data = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
+      setShareUrl(data.url)
+      setCopiedShareLink(false)
+      setGdrivePublicUrl('')
+      setMakingPublic(false)
+      setShareOpen(true)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Share failed')
+    }
     setContextMenu({ x: 0, y: 0, file: null })
   }
 

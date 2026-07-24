@@ -45,6 +45,7 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
       ...headers,
       ...(range && !exportTarget ? { Range: range } : {}),
     },
+    signal: AbortSignal.timeout(60_000),
   })
 
   if (!response.ok) {

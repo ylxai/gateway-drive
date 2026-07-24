@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import { exec, spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { requireAuth } from '../../middleware/auth.middleware.js'
@@ -10,69 +9,10 @@ import { env } from '../../config/env.js'
 export const systemRouter = Router()
 
 
-systemRouter.post('/update', requireAuth, (req, res, next) => {
-  const projectRoot = path.resolve(process.cwd(), '..')
-  const updateScript = path.join(projectRoot, 'update.sh')
-
-  // Check if git is installed
-  exec('git --version', (gitError) => {
-    if (gitError) {
-      return res.status(400).json({
-        code: 'GIT_NOT_FOUND',
-        message: 'Git is not installed inside the app container. Since you are running 9Drive in Docker, please update by running:\n\n1. ssh root@103.65.237.136\n2. cd 9drive\n3. git pull\n4. docker-compose down && docker-compose up -d --build\n\ndirectly in your VPS host terminal.'
-      })
-    }
-
-    if (fs.existsSync(updateScript)) {
-      try {
-        // Clear old update log to prevent race conditions on frontend polling
-        const logFile = path.join(projectRoot, 'update.log')
-        fs.writeFileSync(logFile, 'Initiating update...\n')
-
-        const child = spawn('bash', ['update.sh'], {
-          cwd: projectRoot,
-          detached: true,
-          stdio: 'ignore'
-        })
-        child.unref()
-
-        return res.json({
-          status: 'success',
-          message: 'System update initiated. Rebuilding and restarting backend & frontend in the background. Please wait ~1 minute and refresh the page.'
-        })
-      } catch (err: any) {
-        return res.status(500).json({
-          code: 'UPDATE_FAILED',
-          message: 'Failed to start update script.',
-          error: err.message
-        })
-      }
-    } else {
-      // Fallback to simple git pull if update.sh doesn't exist
-      exec('git pull', { cwd: projectRoot }, (error, stdout, stderr) => {
-        if (error) {
-          console.error('System update failed:', error)
-          return res.status(500).json({
-            code: 'UPDATE_FAILED',
-            message: 'Failed to run git pull. Make sure git is installed and configured.',
-            error: error.message,
-            stderr
-          })
-        }
-
-        console.log('System update stdout:', stdout)
-        if (stderr) {
-          console.warn('System update stderr:', stderr)
-        }
-
-        return res.json({
-          status: 'success',
-          message: 'System code updated successfully. Dev servers will auto-restart.',
-          stdout,
-          stderr
-        })
-      })
-    }
+systemRouter.post('/update', requireAuth, (req, res) => {
+  return res.status(410).json({
+    code: 'UPDATE_DEPRECATED',
+    message: 'The in-app update feature is deprecated for security reasons. Please update by running "git pull" directly on your server.'
   })
 })
 
@@ -202,22 +142,21 @@ systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
 
 systemRouter.get('/backup', requireAuth, (_req, res, next) => {
   try {
-    // Parse DATABASE_URL to extract connection parameters for pg_dump
     const dbUrl = env.DATABASE_URL
-    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/(.+)/)
     if (!match) {
       return res.status(400).json({
         code: 'UNSUPPORTED_DATABASE',
-        message: 'Automatic backup is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+        message: 'Automatic backup is only available for PostgreSQL.'
       })
     }
-    const [, user, password, host, port, dbname] = match
+    const [, user, host, port, dbname] = match
 
     return res.json({
       status: 'ok',
       message: 'To backup your PostgreSQL database, run the following command on your server:',
-      command: `PGPASSWORD='${password}' pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -F c -f 9drive-backup.dump`,
-      note: 'For security, the password is included in this command. Do not share this output. You can also set the PGPASSWORD environment variable separately.'
+      command: `pg_dump -h ${host} -p ${port} -U ${user} -d ${dbname} -F c -f 9drive-backup.dump`,
+      note: 'Set the PGPASSWORD environment variable before running this command. Do not pass the password on the command line.'
     })
   } catch (error) {
     return next(error)
@@ -227,20 +166,20 @@ systemRouter.get('/backup', requireAuth, (_req, res, next) => {
 systemRouter.post('/restore', requireAuth, (_req, res, next) => {
   try {
     const dbUrl = env.DATABASE_URL
-    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/(.+)/)
     if (!match) {
       return res.status(400).json({
         code: 'UNSUPPORTED_DATABASE',
-        message: 'Automatic restore is only available for PostgreSQL. Your DATABASE_URL does not match a standard PostgreSQL connection string.'
+        message: 'Automatic restore is only available for PostgreSQL.'
       })
     }
-    const [, user, password, host, port, dbname] = match
+    const [, user, host, port, dbname] = match
 
     return res.json({
       status: 'ok',
       message: 'To restore your PostgreSQL database, upload your dump file to the server and run:',
-      command: `PGPASSWORD='${password}' pg_restore -h ${host} -p ${port} -U ${user} -d ${dbname} --clean --if-exists 9drive-backup.dump`,
-      note: 'IMPORTANT: This will overwrite your existing database. Make sure to backup first. The --clean flag drops existing tables before restoring. For security, do not share this command output.'
+      command: `pg_restore -h ${host} -p ${port} -U ${user} -d ${dbname} --clean --if-exists 9drive-backup.dump`,
+      note: 'IMPORTANT: This will overwrite your existing database. Set the PGPASSWORD environment variable before running this command.'
     })
   } catch (error) {
     return next(error)

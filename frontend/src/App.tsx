@@ -17,10 +17,12 @@ import { ApiManagementPage } from '@/pages/ApiManagementPage'
 import { TrashPage } from '@/pages/TrashPage'
 import { ActivityLogPage } from '@/pages/ActivityLogPage'
 import { UploadProvider } from '@/context/UploadContext'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 
 
 function App() {
   return (
+    <ErrorBoundary>
     <UploadProvider>
       <Routes>
       <Route path="login" element={<LoginPage />} />
@@ -47,6 +49,7 @@ function App() {
       <Route path="*" element={<Navigate to="/all-files" replace />} />
       </Routes>
     </UploadProvider>
+    </ErrorBoundary>
   )
 }
 
