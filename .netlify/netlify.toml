@@ -1,0 +1,41 @@
+redirectsOrigin = "config"
+plugins = []
+headers = []
+
+[functions]
+
+[functions."*"]
+
+[build]
+publish = "/home/ubuntu/9drive/dist"
+publishOrigin = "config"
+commandOrigin = "config"
+command = "npm run build"
+base = "/home/ubuntu/9drive/frontend"
+
+[build.environment]
+VITE_API_URL = "https://backend.ylex.my.id"
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
