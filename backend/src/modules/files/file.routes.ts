@@ -26,6 +26,7 @@ fileRouter.get('/preview/:token', async (req, res, next) => {
       include: { file: { include: { connectedAccount: true } } },
     })
     if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
+    await prisma.filePreviewToken.delete({ where: { id: preview.id } })
     return streamProviderFile(preview.file, req.headers.range, res, { disposition: 'inline' })
   } catch (error) {
     return next(error)
@@ -339,7 +340,10 @@ fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
     const fileId = String(req.params.id)
     const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
     const token = randomToken(32)
-    await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
+    await prisma.$transaction([
+      prisma.filePreviewToken.deleteMany({ where: { userId: req.user!.id, expiresAt: { lt: new Date() } } }),
+      prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } }),
+    ])
     const path = `/files/preview/${token}`
     return res.status(201).json({ path, url: `${req.protocol}://${req.get('host')}${path}` })
   } catch (error) {
