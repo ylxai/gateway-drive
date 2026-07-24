@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-9Drive is a Google Drive storage gateway. It lets users register/login with email/password or Google, automatically connect the first Drive account during Google sign-in, connect additional Google Drive accounts, track combined quota, upload files through the backend into a dedicated Google Drive `9drive` folder, organize files in virtual folders, preview/download/share files, sync MySQL file records from Google Drive, invite other users to files/folders, and route uploads to a connected Drive account with enough free space.
+Gateway Drive is a Google Drive storage gateway. It lets users register/login with email/password or Google, automatically connect the first Drive account during Google sign-in, connect additional Google Drive accounts, track combined quota, upload files through the backend into a dedicated Google Drive `9drive` folder, organize files in virtual folders, preview/download/share files, sync database file records from Google Drive, invite other users to files/folders, and route uploads to a connected Drive account with enough free space.
 
 ## Repository Structure
 
@@ -227,7 +227,7 @@ Uploads:
 - File fields then match `filesMeta[*].fieldName`, e.g. `file-0`, `file-1`.
 - Backend selects a connected Drive account with enough available quota and streams each file directly to Google Drive.
 - Google Drive uploads are placed under the root Drive folder named `9drive`; virtual folders remain app/database-only.
-- `POST /files/sync-google` treats Google Drive folder `9drive` as source of truth for physical files: create missing MySQL file rows, update changed metadata, and mark missing Drive files as deleted.
+- `POST /files/sync-google` treats Google Drive folder `9drive` as source of truth for physical files: create missing database file rows, update changed metadata, and mark missing Drive files as deleted.
 
 ## Docker
 
