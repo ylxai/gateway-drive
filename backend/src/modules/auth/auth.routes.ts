@@ -11,7 +11,7 @@ import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
 
 export const authRouter = Router()
 
-const REFRESH_COOKIE = '9drive_refresh'
+const REFRESH_COOKIE = 'gwdrive_refresh'
 const REFRESH_COOKIE_TTL_MS = env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
 
 function setRefreshCookie(res: Response, refreshToken: string) {

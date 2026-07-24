@@ -58,7 +58,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       archive: ['application/zip', 'application/x-rar-compressed', 'application/x-tar', 'application/x-7z-compressed']
     }
 
-    const where: any = {
+    const where: Record<string, unknown> = {
       userId: req.user!.id,
       status: 'active',
       ...(query.folderId ? { folderId: query.folderId } : {}),
@@ -327,8 +327,8 @@ fileRouter.post('/:id/public-permission', requireAuth, async (req: AuthRequest, 
     })
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
     return res.json({ status: 'ok', url: metadata.data.webViewLink ?? metadata.data.webContentLink })
-  } catch (error: any) {
-    return res.status(500).json({ code: 'GOOGLE_API_ERROR', message: error.message || 'Failed to update Google Drive permissions.' })
+  } catch (error: unknown) {
+    return res.status(500).json({ code: 'GOOGLE_API_ERROR', message: error instanceof Error ? error.message : 'Failed to update Google Drive permissions.' })
   }
 })
 
@@ -375,8 +375,8 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
           type: 'anyone'
         }
       })
-    } catch (err: any) {
-      console.error('Failed to make Google Drive file public during view-url retrieval:', err.message || err)
+    } catch (err: unknown) {
+      console.error('Failed to make Google Drive file public during view-url retrieval:', err instanceof Error ? err.message : String(err))
     }
 
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
@@ -432,11 +432,11 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     if (files.length === 0) return res.status(404).json({ code: 'FILES_NOT_FOUND', message: 'No files found.' })
 
     res.setHeader('Content-Type', 'application/zip')
-    res.setHeader('Content-Disposition', 'attachment; filename="9drive-download.zip"')
+    res.setHeader('Content-Disposition', 'attachment; filename="files.zip"')
 
     archive = new ZipArchive({ zlib: { level: 9 } })
-    archive.on('error', (err: any) => {
-      console.error('Zip archive error:', err)
+    archive.on('error', (err: unknown) => {
+      console.error('Zip archive error:', err instanceof Error ? err.message : String(err))
       cleanup()
     })
     archive.pipe(res)
@@ -463,6 +463,7 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
             : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
           const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) })
           if (!response.ok || !response.body) continue
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           stream = Readable.fromWeb(response.body as any)
         }
 

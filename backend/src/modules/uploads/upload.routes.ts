@@ -57,11 +57,11 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
       } else {
         await syncGoogleQuota(account.id)
       }
-    } catch (err: any) {
-      console.error(`[upload] failed to sync quota for account ${account.email} (${account.id}):`, err.message || err)
+    } catch (err: unknown) {
+      console.error(`[upload] failed to sync quota for account ${account.email} (${account.id}):`, err instanceof Error ? err.message : String(err))
       await prisma.connectedAccount.update({
         where: { id: account.id },
-        data: { lastError: err.message || 'Quota sync failed' }
+        data: { lastError: err instanceof Error ? err.message : 'Quota sync failed' }
       }).catch(() => undefined)
     }
   }))
@@ -490,9 +490,9 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
     const putRes = await fetch(session.googleSessionUri, {
       method: 'PUT',
       headers: putHeaders,
-      body: req as any,
-      duplex: 'half'
-    } as any)
+      body: req as unknown as BodyInit & ReadableStream,
+      duplex: 'half',
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
 
     if (putRes.status === 308) {
       return res.json({ status: 'uploading', offset: (endByte + 1n).toString() })
