@@ -17,6 +17,7 @@ import { publicApiRouter } from './modules/public-api/public-api.routes.js'
 import { auditLogRouter } from './modules/audit-logs/audit-log.routes.js'
 import { systemRouter } from './modules/system/system.routes.js'
 import { generalLimiter, authLimiter, uploadLimiter } from './middleware/rate-limit.middleware.js'
+import { csrfProtection } from './middleware/csrf.middleware.js'
 
 export const app = express()
 app.set('trust proxy', true)
@@ -24,6 +25,7 @@ app.set('trust proxy', true)
 app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
+app.use(csrfProtection)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
