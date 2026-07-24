@@ -193,7 +193,7 @@ authRouter.post('/google/exchange', async (req, res, next) => {
 
 authRouter.post('/refresh', async (req, res, next) => {
   try {
-    const refreshToken = getRefreshCookie(req) ?? refreshSchema.parse(req.body).refreshToken
+    const refreshToken = getRefreshCookie(req)
     if (!refreshToken) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
     const tokenHash = hashToken(refreshToken)
     const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: tokenHash, revokedAt: null, expiresAt: { gt: new Date() } } })

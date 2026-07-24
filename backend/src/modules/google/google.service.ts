@@ -10,6 +10,8 @@ export function createOAuthClient(config: ProviderConfig) {
   return new google.auth.OAuth2(decryptText(config.clientIdEncrypted), decryptText(config.clientSecretEncrypted), config.redirectUri)
 }
 
+const tokenRefreshLocks = new Map<string, Promise<{ accessToken: string; expiryDate: number } | null>>()
+
 export async function getAuthedGoogleClient(account: ConnectedAccount) {
   if (!account.accessTokenEncrypted || !account.refreshTokenEncrypted || !account.tokenExpiresAt) throw new Error('Google account tokens are missing.')
   if (!account.providerConfigId) throw new Error('Google provider config is missing.')
@@ -22,17 +24,28 @@ export async function getAuthedGoogleClient(account: ConnectedAccount) {
   })
 
   if (account.tokenExpiresAt.getTime() < Date.now() + 60_000) {
-    const result = await client.refreshAccessToken()
-    const credentials = result.credentials
-    if (credentials.access_token) {
-      await prisma.connectedAccount.update({
-        where: { id: account.id },
-        data: {
-          accessTokenEncrypted: encryptText(credentials.access_token),
-          tokenExpiresAt: new Date(credentials.expiry_date ?? Date.now() + 3600_000),
-        },
-      })
-      client.setCredentials(credentials)
+    let result = tokenRefreshLocks.get(account.id)
+    if (!result) {
+      result = (async () => {
+        try {
+          const response = await client.refreshAccessToken()
+          const credentials = response.credentials
+          if (!credentials.access_token) return null
+          const expiryDate = credentials.expiry_date ?? Date.now() + 3600_000
+          await prisma.connectedAccount.update({
+            where: { id: account.id },
+            data: { accessTokenEncrypted: encryptText(credentials.access_token), tokenExpiresAt: new Date(expiryDate) },
+          })
+          return { accessToken: credentials.access_token, expiryDate }
+        } finally {
+          tokenRefreshLocks.delete(account.id)
+        }
+      })()
+      tokenRefreshLocks.set(account.id, result)
+    }
+    const refreshed = await result
+    if (refreshed) {
+      client.setCredentials({ access_token: refreshed.accessToken, refresh_token: decryptText(account.refreshTokenEncrypted), expiry_date: refreshed.expiryDate })
     }
   }
 

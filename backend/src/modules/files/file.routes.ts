@@ -45,7 +45,9 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       minSize: z.coerce.number().optional(),
       maxSize: z.coerce.number().optional(),
       startDate: z.string().datetime().optional(),
-      endDate: z.string().datetime().optional()
+      endDate: z.string().datetime().optional(),
+      take: z.coerce.number().int().min(1).max(500).optional().default(100),
+      skip: z.coerce.number().int().min(0).optional().default(0),
     }).parse(req.query)
 
     const typeFilters: Record<string, string[]> = {
@@ -60,7 +62,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       userId: req.user!.id,
       status: 'active',
       ...(query.folderId ? { folderId: query.folderId } : {}),
-      ...(query.q ? { name: { contains: query.q } } : {}),
+      ...(query.q ? { name: { contains: query.q, mode: 'insensitive' as const } } : {}),
       ...(query.accountId ? { connectedAccountId: query.accountId } : {}),
       ...(query.kind ? { mimeType: { in: typeFilters[query.kind] || [] } } : {}),
       ...(query.minSize !== undefined || query.maxSize !== undefined ? {
@@ -77,15 +79,20 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       } : {})
     }
 
-    const files = await prisma.file.findMany({
-      where,
-      include: {
-        connectedAccount: { select: { id: true, email: true, provider: true } },
-        folder: { select: { id: true, name: true } }
-      },
-      orderBy: { createdAt: 'desc' }
-    })
-    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
+    const [files, total] = await Promise.all([
+      prisma.file.findMany({
+        where,
+        include: {
+          connectedAccount: { select: { id: true, email: true, provider: true } },
+          folder: { select: { id: true, name: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: query.take,
+        skip: query.skip,
+      }),
+      prisma.file.count({ where }),
+    ])
+    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })), total, take: query.take, skip: query.skip })
   } catch (error) {
     return next(error)
   }
@@ -454,7 +461,7 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const url = exportTarget
             ? `https://www.googleapis.com/drive/v3/files/${file.providerFileId}/export?mimeType=${encodeURIComponent(exportTarget.mimeType)}`
             : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
-          const response = await fetch(url, { headers })
+          const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) })
           if (!response.ok || !response.body) continue
           stream = Readable.fromWeb(response.body as any)
         }
@@ -466,12 +473,16 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
     }
 
     if (!finalized) {
-      await archive.finalize()
+      try {
+        await archive.finalize()
+      } catch (err) {
+        console.error('Zip finalize error:', err)
+      }
       finalized = true
     }
   } catch (error) {
-    cleanup()
-    return next(error)
+    if (!finalized) cleanup()
+    else console.error('Zip download error after finalize:', error)
   } finally {
     req.removeListener('close', cleanup)
   }
