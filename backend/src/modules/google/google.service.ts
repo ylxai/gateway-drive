@@ -157,7 +157,7 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
 
   const existingFiles = await prisma.file.findMany({ where: { userId, connectedAccountId: account.id, provider: 'google_drive' } })
   const existingByProviderId = new Map(existingFiles.map((file) => [file.providerFileId, file]))
-  const driveFileIds = new Set(driveFiles.map((file) => file.id))
+  const driveFileIds = new Set(driveFiles.map((file: any) => file.id))
   let created = 0
   let updated = 0
   let deleted = 0
@@ -188,7 +188,7 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
     await prisma.file.createMany({ data: toCreate })
   }
 
-  const missingActiveIds = existingFiles.filter((file) => file.status === 'active' && !driveFileIds.has(file.providerFileId)).map((file) => file.id)
+  const missingActiveIds = existingFiles.filter((file: any) => file.status === 'active' && !driveFileIds.has(file.providerFileId)).map((file: any) => file.id)
   if (missingActiveIds.length > 0) {
     const result = await prisma.file.updateMany({ where: { id: { in: missingActiveIds }, userId }, data: { status: 'deleted', deletedAt: new Date() } })
     deleted = result.count
