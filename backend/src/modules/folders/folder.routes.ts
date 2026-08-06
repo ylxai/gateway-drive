@@ -274,7 +274,7 @@ folderRouter.delete('/:id', async (req: AuthRequest, res, next) => {
 
     const files = await prisma.file.findMany({ where: { userId: req.user!.id, status: 'active', folderId: { in: [...folderIds] } }, include: { connectedAccount: true } })
     const folderIdArr = [...folderIds]
-    const fileIds = files.map((file) => file.id)
+    const fileIds = files.map((file: any) => file.id)
 
     // Phase 1: Mark DB records as deleted atomically. If this succeeds, the user's
     // intent is persisted. Google Drive cleanup is best-effort (Phase 2).

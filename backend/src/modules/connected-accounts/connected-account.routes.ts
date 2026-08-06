@@ -34,7 +34,7 @@ connectedAccountRouter.get('/', requireAuth, async (req: AuthRequest, res, next)
       include: { storageAccount: true },
       orderBy: { createdAt: 'desc' },
     })
-    const missingQuota = accounts.filter((account) => !account.storageAccount?.lastSyncedAt)
+    const missingQuota = accounts.filter((account: any) => !account.storageAccount?.lastSyncedAt)
     for (const account of missingQuota) await syncQuotaForAccount(account).catch(() => undefined)
 
     const syncedAccounts = missingQuota.length > 0

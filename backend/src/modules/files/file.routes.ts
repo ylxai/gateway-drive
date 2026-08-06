@@ -92,7 +92,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       }),
       prisma.file.count({ where }),
     ])
-    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })), total, take: query.take, skip: query.skip })
+    return res.json({ files: files.map((file: any) => ({ ...file, sizeBytes: file.sizeBytes.toString() })), total, take: query.take, skip: query.skip })
   } catch (error) {
     return next(error)
   }
@@ -144,7 +144,7 @@ fileRouter.get('/trash', async (req: AuthRequest, res, next) => {
       },
       orderBy: { deletedAt: 'desc' }
     })
-    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
+    return res.json({ files: files.map((file: any) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
   } catch (error) {
     return next(error)
   }
@@ -227,7 +227,7 @@ fileRouter.get('/shared-links', async (req: AuthRequest, res, next) => {
       orderBy: { createdAt: 'desc' },
     })
     return res.json({
-      shares: shares.filter((share) => share.file.status === 'active').map((share) => {
+      shares: shares.filter((share: any) => share.file.status === 'active').map((share) => {
         const url = share.token ? `${env.FRONTEND_URL}/public/files/${share.token}` : null
         return {
           id: share.id,
