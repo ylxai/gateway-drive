@@ -4,7 +4,7 @@
   publish = "dist"
 
 [build.environment]
-  VITE_API_URL = "https://9drive-backend.onrender.com"
+  VITE_API_URL = "https://priday-farelya-workspace-9drive.tose.sh"
 
 [[redirects]]
   from = "/*"
