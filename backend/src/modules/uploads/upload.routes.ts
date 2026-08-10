@@ -33,7 +33,7 @@ function normalizePriorityAccountIds(value: unknown) {
 
 function byPriority<T extends { account: { id: string; createdAt: Date } }>(items: T[], priorityAccountIds: string[]) {
   const order = new Map(priorityAccountIds.map((id, index) => [id, index]))
-  return [...items].sort((a: any, b: any) => {
+  return [...items].sort((a, b) => {
     const aOrder = order.get(a.account.id)
     const bOrder = order.get(b.account.id)
     if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder
@@ -49,8 +49,8 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     include: { storageAccount: true },
   })
 
-  const stale = accounts.filter((account: any) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
-  await Promise.allSettled(stale.map(async (account: any) => {
+  const stale = accounts.filter((account) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
+  await Promise.allSettled(stale.map(async (account) => {
     try {
       if (account.provider === 's3') {
         await syncS3Quota(account.id)
@@ -72,7 +72,7 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
   })
 
   const eligible = fresh
-    .map((account: any) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
+    .map((account) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
     .filter(({ availableBytes }) => availableBytes === null || availableBytes >= sizeBytes)
 
   if (eligible.length === 0) return null
@@ -96,7 +96,7 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
   }
 
   return eligible
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       if (a.availableBytes === null && b.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (a.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (b.availableBytes === null) return b.account.provider === 's3' ? 1 : -1

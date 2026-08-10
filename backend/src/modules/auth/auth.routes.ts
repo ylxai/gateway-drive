@@ -199,7 +199,7 @@ authRouter.post('/refresh', async (req, res, next) => {
     const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: tokenHash, revokedAt: null, expiresAt: { gt: new Date() } } })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
 
-    const tokens = await prisma.$transaction(async (tx: any) => {
+    const tokens = await prisma.$transaction(async (tx) => {
       await tx.userSession.update({
         where: { id: session.id, refreshTokenHash: tokenHash, revokedAt: null },
         data: { revokedAt: new Date() },
