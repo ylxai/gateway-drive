@@ -15,6 +15,7 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/src/scripts ./src/scripts
 COPY backend/package.json ./
 
 # Prisma client needs these at runtime for migrate + query
