@@ -33,7 +33,7 @@ function normalizePriorityAccountIds(value: unknown) {
 
 function byPriority<T extends { account: { id: string; createdAt: Date } }>(items: T[], priorityAccountIds: string[]) {
   const order = new Map(priorityAccountIds.map((id, index) => [id, index]))
-  return [...items].sort((a, b) => {
+  return [...items].sort((a: T, b: T) => {
     const aOrder = order.get(a.account.id)
     const bOrder = order.get(b.account.id)
     if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder

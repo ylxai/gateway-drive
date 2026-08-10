@@ -114,7 +114,7 @@ authRouter.get('/google/callback', async (req, res) => {
     const oauthState = await prisma.oauthState.findUniqueOrThrow({ where: { stateHash: hashToken(query.state) }, include: { providerConfig: true } })
     if (oauthState.flow !== 'login' || oauthState.usedAt || oauthState.expiresAt < new Date()) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
 
-    const client = createOAuthClient(oauthState.providerConfig)
+    const client = createOAuthClient(oauthState.providerConfig!)
     const tokenResult = await client.getToken(query.code)
     const tokens = tokenResult.tokens
     if (!tokens.access_token) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
@@ -149,7 +149,7 @@ authRouter.get('/google/callback', async (req, res) => {
         accessTokenEncrypted: encryptText(tokens.access_token),
         refreshTokenEncrypted,
         tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig.scopes as string[],
+        scopes: oauthState.providerConfig!.scopes as string[],
         status: 'connected',
       },
       update: {
@@ -160,7 +160,7 @@ authRouter.get('/google/callback', async (req, res) => {
         accessTokenEncrypted: encryptText(tokens.access_token),
         refreshTokenEncrypted,
         tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig.scopes as string[],
+        scopes: oauthState.providerConfig!.scopes as string[],
         status: 'connected',
       },
     })

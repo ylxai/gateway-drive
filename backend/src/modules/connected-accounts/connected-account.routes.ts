@@ -179,7 +179,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     const query = z.object({ code: z.string(), state: z.string() }).parse(req.query)
     const oauthState = await prisma.oauthState.findUniqueOrThrow({ where: { stateHash: hashToken(query.state) }, include: { providerConfig: true } })
     if (oauthState.usedAt || oauthState.expiresAt < new Date()) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state expired.' })
-    const client = createOAuthClient(oauthState.providerConfig)
+    const client = createOAuthClient(oauthState.providerConfig!)
     const tokenResult = await client.getToken(query.code)
     const tokens = tokenResult.tokens
     if (!tokens.access_token) return res.status(400).json({ code: 'GOOGLE_OAUTH_FAILED', message: 'Google did not return required tokens.' })
@@ -216,7 +216,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
           accessTokenEncrypted: encryptText(tokens.access_token),
           refreshTokenEncrypted,
           tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-          scopes: oauthState.providerConfig.scopes as string[],
+          scopes: oauthState.providerConfig!.scopes as string[],
           status: 'connected',
         },
         update: {
@@ -227,7 +227,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
           accessTokenEncrypted: encryptText(tokens.access_token),
           refreshTokenEncrypted,
           tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-          scopes: oauthState.providerConfig.scopes as string[],
+          scopes: oauthState.providerConfig!.scopes as string[],
           status: 'connected',
         },
       })
@@ -256,7 +256,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
         accessTokenEncrypted: encryptText(tokens.access_token),
         refreshTokenEncrypted,
         tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig.scopes as string[],
+        scopes: oauthState.providerConfig!.scopes as string[],
         status: 'connected',
       },
       update: {
@@ -267,7 +267,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
         accessTokenEncrypted: encryptText(tokens.access_token),
         refreshTokenEncrypted,
         tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig.scopes as string[],
+        scopes: oauthState.providerConfig!.scopes as string[],
         status: 'connected',
       },
     })

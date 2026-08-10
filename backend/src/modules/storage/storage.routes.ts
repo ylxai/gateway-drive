@@ -31,7 +31,7 @@ async function getOrCreateRoutingPolicy(userId: string) {
 storageRouter.get('/summary', async (req: AuthRequest, res, next) => {
   try {
     const accounts = await prisma.connectedAccount.findMany({ where: { userId: req.user!.id, status: 'connected' }, include: { storageAccount: true } })
-    const summary = accounts.reduce((acc, account) => {
+    const summary = accounts.reduce((acc: { totalBytes: bigint; usedBytes: bigint; availableBytes: bigint }, account) => {
       const storage = account.storageAccount
       acc.totalBytes += storage?.totalBytes ?? 0n
       acc.usedBytes += storage?.usedBytes ?? 0n
