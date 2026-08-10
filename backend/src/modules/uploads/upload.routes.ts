@@ -49,8 +49,8 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     include: { storageAccount: true },
   })
 
-  const stale = accounts.filter((account) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
-  await Promise.allSettled(stale.map(async (account) => {
+  const stale = accounts.filter((account: any) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
+  await Promise.allSettled(stale.map(async (account: any) => {
     try {
       if (account.provider === 's3') {
         await syncS3Quota(account.id)
@@ -72,7 +72,7 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
   })
 
   const eligible = fresh
-    .map((account) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
+    .map((account: any) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
     .filter(({ availableBytes }) => availableBytes === null || availableBytes >= sizeBytes)
 
   if (eligible.length === 0) return null
@@ -96,7 +96,7 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
   }
 
   return eligible
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       if (a.availableBytes === null && b.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (a.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (b.availableBytes === null) return b.account.provider === 's3' ? 1 : -1

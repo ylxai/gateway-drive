@@ -20,8 +20,8 @@ declare module "@prisma/client" {
     file: ModelDelegate<File>;
     fileShare: ModelDelegate<FileShare>;
     filePreviewToken: ModelDelegate<FilePreviewToken>;
-    folder: ModelDelegate<Folder>;
-    uploadSession: ModelDelegate<UploadSession>;
+    folder: ModelDelegate<any>;
+    uploadSession: ModelDelegate<any>;
     auditLog: ModelDelegate<any>;
     workspaceInvite: ModelDelegate<any>;
     $transaction<T>(fn: (tx: any) => Promise<T>): Promise<T>;
@@ -74,8 +74,8 @@ declare module "@prisma/client" {
     user: User;
     providerConfig: ProviderConfig | null;
     files: File[];
-    folders: Folder[];
-    uploadSessions: UploadSession[];
+    folders: any[];
+    uploadSessions: any[];
   }
 
   export interface File {
@@ -94,7 +94,7 @@ declare module "@prisma/client" {
     updatedAt: Date;
     deletedAt: Date | null;
     connectedAccount: ConnectedAccount;
-    folder: Folder | null;
+    folder: any | null;
     shares: FileShare[];
     previewTokens: FilePreviewToken[];
   }
