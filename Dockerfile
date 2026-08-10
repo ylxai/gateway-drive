@@ -15,7 +15,6 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/src/scripts ./src/scripts
 COPY backend/package.json ./
 
 # Prisma client needs these at runtime for migrate + query
@@ -24,6 +23,9 @@ RUN npm install -g tsx@^4.0.0
 
 EXPOSE 3000
 
-# Google OAuth config is already seeded in DB, so seed script gracefully skips
-# when GOOGLE_CLIENT_ID is empty — no crash either way
-CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx src/scripts/seed-google-config-if-present.ts && node dist/server.js"]
+# Google OAuth config is already seeded in DB from the previous Render deployment,
+# so the seed script is skipped. If config needs to be refreshed, run:
+#   npx tsx src/scripts/seed-google-config-if-present.ts
+# from a pod shell, or set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REDIRECT_URI
+# in TOSE env vars and the startup script will pick them up.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
