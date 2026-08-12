@@ -45,7 +45,8 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
       ...headers,
       ...(range && !exportTarget ? { Range: range } : {}),
     },
-    signal: AbortSignal.timeout(60_000),
+    // NOTE: no AbortSignal.timeout here — it would abort the response BODY after
+    // N seconds, truncating large file streams mid-download.
   })
 
   if (!response.ok) {

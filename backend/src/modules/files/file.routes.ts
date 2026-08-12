@@ -321,7 +321,7 @@ fileRouter.post('/:id/public-permission', requireAuth, async (req: AuthRequest, 
     await drive.permissions.create({
       fileId: file.providerFileId,
       requestBody: {
-        role: 'writer',
+        role: 'reader',
         type: 'anyone'
       }
     })
@@ -366,19 +366,8 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
 
-    // Automatically set permission to public writer when retrieving/copying the view URL!
-    try {
-      await drive.permissions.create({
-        fileId: file.providerFileId,
-        requestBody: {
-          role: 'writer',
-          type: 'anyone'
-        }
-      })
-    } catch (err: unknown) {
-      console.error('Failed to make Google Drive file public during view-url retrieval:', err instanceof Error ? err.message : String(err))
-    }
-
+    // NOTE: intentionally NOT setting any 'anyone' permission here. Files are only
+    // made public via the explicit POST /:id/public-permission endpoint.
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
     return res.json({ url: metadata.data.webViewLink ?? metadata.data.webContentLink })
   } catch (error) {
@@ -461,15 +450,22 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const url = exportTarget
             ? `https://www.googleapis.com/drive/v3/files/${file.providerFileId}/export?mimeType=${encodeURIComponent(exportTarget.mimeType)}`
             : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
-          const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) })
+          const response = await fetch(url, { headers })
           if (!response.ok || !response.body) continue
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           stream = Readable.fromWeb(response.body as any)
         }
 
+        // Attach an error handler BEFORE appending so a failing source stream
+        // aborts the whole archive instead of silently producing a corrupt zip.
+        stream.on('error', (err: unknown) => {
+          console.error(`Failed to stream file ${file.name} into zip:`, err)
+          cleanup()
+        })
         archive!.append(stream, { name: fileName })
       } catch (err) {
         console.error(`Failed to add file ${file.name} to zip:`, err)
+        cleanup()
       }
     }
 
