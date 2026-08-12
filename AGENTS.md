@@ -16,7 +16,7 @@ Gateway Drive is a Google Drive storage gateway. It lets users register/login wi
 
 - Node.js 20+
 - npm
-- MySQL 8+
+- PostgreSQL 14+ (local, or managed like Neon; `DATABASE_URL` + `DIRECT_URL` required)
 - Google Cloud project with Google Drive API enabled
 - Google OAuth client ID and secret
 
@@ -41,7 +41,8 @@ Important files:
 - `backend/src/config/prisma.ts`: Prisma client.
 - `backend/prisma/schema.prisma`: database schema.
 - `backend/src/middleware/auth.middleware.ts`: bearer auth.
-- `backend/src/middleware/error.middleware.ts`: JSON error responses.
+- `backend/src/middleware/admin.middleware.ts`: admin-only guard for `/system/*` endpoints (uses `ADMIN_USER_IDS`).
+- `backend/src/middleware/error.middleware.ts`: JSON error responses (Zod→400, not-found→404, internal→500).
 - `backend/src/modules/**`: feature route modules and provider services.
 - `backend/src/modules/files/stream-google-file.ts`: Google file preview/download streaming.
 - `backend/src/scripts/seed-google-config.ts`: stores encrypted global Google OAuth config.
@@ -56,10 +57,12 @@ Commands:
 
 Environment:
 - `DATABASE_URL`
+- `DIRECT_URL`
 - `APP_PORT`
 - `FRONTEND_URL`
 - `JWT_ACCESS_SECRET`
 - `TOKEN_ENCRYPTION_KEY`
+- `ADMIN_USER_IDS` (optional; comma-separated user IDs allowed to call `/system/*`)
 - `RECAPTCHA_SECRET_KEY` (optional; enables captcha verification when paired with frontend site key)
 - `ACCESS_TOKEN_TTL_SECONDS`
 - `REFRESH_TOKEN_TTL_DAYS`
@@ -241,11 +244,12 @@ Commands:
 - `docker compose down -v`: stop services and remove DB volume.
 
 Docker notes:
-- MySQL image is `mysql:8.4`.
-- Backend listens on `4000`.
-- Frontend build is served by nginx on host port `5173`.
+- PostgreSQL image is `postgres:16-alpine`.
+- Backend listens on `4000` (host port `4001`).
+- Frontend build is served by nginx on host port `5174`.
 - Frontend build arg `VITE_API_URL` is embedded at build time.
 - Rebuild frontend when `VITE_API_URL` changes.
+- `JWT_ACCESS_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` have NO defaults — `docker compose` fails fast if unset. See `.env.docker.example`.
 
 ## Verification
 
