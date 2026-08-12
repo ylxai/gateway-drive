@@ -15,7 +15,8 @@
     "test:s3": "tsx src/scripts/test-s3-connection.ts",
     "test:api-upload": "tsx src/scripts/test-api-upload.ts",
     "lint": "eslint src/ --max-warnings 200",
-    "lint:fix": "eslint src/ --fix"
+    "lint:fix": "eslint src/ --fix",
+    "test": "node --import tsx --import ./test/env.ts --test src/utils/*.test.ts"
   },
   "keywords": [],
   "author": "",

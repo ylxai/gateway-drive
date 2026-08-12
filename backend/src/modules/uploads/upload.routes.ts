@@ -295,13 +295,22 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
 
     busboy.on('finish', () => {
       if (!responded && !fileSeen) return fail(400, 'UPLOAD_FILE_REQUIRED', 'file field required.')
-      Promise.all(pendingUploads).then(() => {
+      Promise.all(pendingUploads).then(async () => {
         if (responded) return
         responded = true
         logUpload('response sent', { completed: completed.length, failed: failed.length })
 
-        // Sync quotas once per account after batch completes (use the provider-appropriate sync)
+        // Sync quotas once per account after batch completes (use the provider-appropriate sync).
+        // selectAccount already synced any stale account during pre-flight, so
+        // skip accounts whose quota was refreshed less than a minute ago to
+        // avoid hitting the provider API twice for the same account.
         for (const [accountId, provider] of syncedAccounts) {
+          const account = await prisma.connectedAccount.findUnique({ where: { id: accountId }, include: { storageAccount: true } })
+          const lastSynced = account?.storageAccount?.lastSyncedAt?.getTime() ?? 0
+          if (Date.now() - lastSynced < 60_000) {
+            logUpload('quota sync skipped (fresh from pre-flight)', { accountId })
+            continue
+          }
           const sync = provider === 's3' ? syncS3Quota(accountId) : syncGoogleQuota(accountId)
           sync.catch((err) => logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' }))
         }

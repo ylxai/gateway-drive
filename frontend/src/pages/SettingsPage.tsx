@@ -150,7 +150,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!isPollingLog) return
 
-    let intervalId: any
+    const intervalId = setInterval(fetchLog, 2000)
     let active = true
 
     async function fetchLog() {
@@ -174,7 +174,6 @@ export function SettingsPage() {
     }
 
     fetchLog()
-    intervalId = setInterval(fetchLog, 2000)
 
     return () => {
       active = false

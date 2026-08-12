@@ -228,6 +228,7 @@ model File {
   @@index([userId])
   @@index([userId, status, createdAt])
   @@index([userId, status, folderId, createdAt])
+  @@index([userId, status, name])
   @@index([connectedAccountId])
   @@index([folderId])
   @@index([providerFileId])

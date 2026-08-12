@@ -57,10 +57,10 @@ inviteRouter.get('/', async (req: AuthRequest, res, next) => {
     const emails = [...new Set(sent.map((invite) => invite.inviteeEmail))]
     const users = await prisma.user.findMany({ where: { email: { in: emails } }, select: { id: true, name: true, email: true } })
     const userByEmail = new Map(users.map((user) => [user.email, user]))
-    const acceptedInvites = sent.filter((invite) => invite.status === 'pending' && userByEmail.has(invite.inviteeEmail))
-    if (acceptedInvites.length > 0) await prisma.workspaceInvite.updateMany({ where: { id: { in: acceptedInvites.map((invite) => invite.id) } }, data: { status: 'accepted', acceptedAt: new Date() } })
+    // No implicit acceptance: invites only grant access once the invitee
+    // explicitly accepts (POST /invites/:id/accept).
     const targetByKey = await resolveTargets(allInvites)
-    const sentInvites = sent.map((invite) => serializeInvite({ ...invite, status: userByEmail.has(invite.inviteeEmail) ? 'accepted' : invite.status, acceptedAt: userByEmail.has(invite.inviteeEmail) ? invite.acceptedAt ?? new Date() : invite.acceptedAt }, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, userByEmail.get(invite.inviteeEmail)))
+    const sentInvites = sent.map((invite) => serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, userByEmail.get(invite.inviteeEmail)))
     const receivedInvites = received.map((invite) => serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null))
     return res.json({ sent: sentInvites, received: receivedInvites, invites: sentInvites })
   } catch (error) {
@@ -78,11 +78,41 @@ inviteRouter.post('/', async (req: AuthRequest, res, next) => {
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } })
     const invite = await prisma.workspaceInvite.upsert({
       where: { inviterId_inviteeEmail_targetType_targetId: { inviterId: req.user!.id, inviteeEmail: email, targetType: body.targetType, targetId: body.targetId } },
-      create: { inviterId: req.user!.id, inviteeEmail: email, role: body.role, targetType: body.targetType, targetId: body.targetId, status: existingUser ? 'accepted' : 'pending', acceptedAt: existingUser ? new Date() : null },
-      update: { role: body.role, status: existingUser ? 'accepted' : 'pending', acceptedAt: existingUser ? new Date() : null, revokedAt: null },
+      create: { inviterId: req.user!.id, inviteeEmail: email, role: body.role, targetType: body.targetType, targetId: body.targetId, status: 'pending' },
+      update: { role: body.role, status: 'pending', acceptedAt: null, revokedAt: null },
     })
     const targetByKey = await resolveTargets([invite])
     return res.status(201).json({ invite: serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, existingUser) })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+// Invitee explicitly accepts a pending invite → access is granted.
+inviteRouter.post('/:id/accept', async (req: AuthRequest, res, next) => {
+  try {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+    const result = await prisma.workspaceInvite.updateMany({
+      where: { id: String(req.params.id), inviteeEmail: me.email, status: 'pending', revokedAt: null },
+      data: { status: 'accepted', acceptedAt: new Date() },
+    })
+    if (result.count === 0) return res.status(404).json({ code: 'INVITE_NOT_FOUND', message: 'Pending invite not found.' })
+    return res.json({ status: 'ok' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+// Invitee declines a pending invite.
+inviteRouter.post('/:id/decline', async (req: AuthRequest, res, next) => {
+  try {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+    const result = await prisma.workspaceInvite.updateMany({
+      where: { id: String(req.params.id), inviteeEmail: me.email, status: 'pending', revokedAt: null },
+      data: { status: 'revoked', revokedAt: new Date() },
+    })
+    if (result.count === 0) return res.status(404).json({ code: 'INVITE_NOT_FOUND', message: 'Pending invite not found.' })
+    return res.json({ status: 'ok' })
   } catch (error) {
     return next(error)
   }

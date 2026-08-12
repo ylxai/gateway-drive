@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Response as ExpressResponse } from 'express'
 import { google } from 'googleapis'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
@@ -13,6 +13,25 @@ import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { Readable } from 'node:stream'
 import { ZipArchive } from 'archiver'
 import { createAuditLog } from '../../utils/audit.js'
+import { expandFolderDescendants, resolveFileAccess } from '../invites/invite-access.js'
+
+/**
+ * Ensure the requester can access (read at least) the file. Returns the file
+ * (with its connected account) when allowed, otherwise responds 404 and
+ * returns null. `minRole` enforces edit access for mutating endpoints.
+ */
+async function requireFileAccess(req: AuthRequest, res: ExpressResponse, fileId: string, minRole: 'viewer' | 'editor' = 'viewer') {
+  const role = await resolveFileAccess(req.user!.id, fileId)
+  if (!role) {
+    res.status(404).json({ code: 'FILE_NOT_FOUND', message: 'File not found.' })
+    return null
+  }
+  if (minRole === 'editor' && role === 'viewer') {
+    res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'You only have view access to this file.' })
+    return null
+  }
+  return role
+}
 
 
 
@@ -61,6 +80,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       endDate: z.string().datetime().optional(),
       take: z.coerce.number().int().min(1).max(500).optional().default(100),
       skip: z.coerce.number().int().min(0).optional().default(0),
+      shared: z.enum(['1']).optional(),
     }).parse(req.query)
 
     const typeFilters: Record<string, string[]> = {
@@ -71,8 +91,9 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       archive: ['application/zip', 'application/x-rar-compressed', 'application/x-tar', 'application/x-7z-compressed']
     }
 
-    const where: Record<string, unknown> = {
-      userId: req.user!.id,
+    // 'shared=1' lists files shared with this user (accepted invites), instead
+    // of the user's own files.
+    const baseWhere: Record<string, unknown> = {
       status: 'active',
       ...(query.folderId ? { folderId: query.folderId } : {}),
       ...(query.q ? { name: { contains: query.q, mode: 'insensitive' as const } } : {}),
@@ -90,6 +111,29 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
           ...(query.endDate ? { lte: new Date(query.endDate) } : {})
         }
       } : {})
+    }
+
+    const where: Record<string, unknown> = { ...baseWhere, userId: req.user!.id }
+    if (query.shared === '1') {
+      // Files shared with me: own files OR files targeted by accepted invites
+      // (file-level invites, plus files inside folders shared with me).
+      const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+      const [fileInvites, folderInvites] = await Promise.all([
+        prisma.workspaceInvite.findMany({ where: { inviteeEmail: me.email, targetType: 'file', status: 'accepted', revokedAt: null }, select: { targetId: true } }),
+        prisma.workspaceInvite.findMany({ where: { inviteeEmail: me.email, targetType: 'folder', status: 'accepted', revokedAt: null }, select: { targetId: true } }),
+      ])
+      const invitedFileIds = fileInvites.map((invite) => invite.targetId)
+      // Include files inside the invited folders AND their subfolders so the
+      // listing matches resolveFileAccess's folder-chain access resolution.
+      const folderTargetIds = folderInvites.length > 0
+        ? await expandFolderDescendants(folderInvites.map((invite) => invite.targetId))
+        : []
+      const folderFiles = folderTargetIds.length > 0
+        ? await prisma.file.findMany({ where: { folderId: { in: folderTargetIds } }, select: { id: true } })
+        : []
+      const ids = [...new Set([...invitedFileIds, ...folderFiles.map((file) => file.id)])]
+      delete where.userId
+      where.OR = [{ userId: req.user!.id }, ...(ids.length > 0 ? [{ id: { in: ids } }] : [])]
     }
 
     const [files, total] = await Promise.all([
@@ -280,8 +324,10 @@ fileRouter.post('/sync-google', async (req: AuthRequest, res, next) => {
 fileRouter.get('/:id', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
-    return res.json({ file: { ...file, sizeBytes: file.sizeBytes.toString() } })
+    const role = await requireFileAccess(req, res, fileId)
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
+    return res.json({ file: { ...file, sizeBytes: file.sizeBytes.toString(), access: role } })
   } catch (error) {
     return next(error)
   }
@@ -291,11 +337,16 @@ fileRouter.patch('/:id', async (req: AuthRequest, res, next) => {
   try {
     const body = z.object({ name: z.string().min(1).max(255).optional(), folderId: z.string().nullable().optional() }).parse(req.body)
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    const role = await requireFileAccess(req, res, fileId, 'editor')
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId }, include: { connectedAccount: true } })
+    if (file.userId !== req.user!.id && body.folderId !== undefined) {
+      return res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'Only the owner can move a shared file.' })
+    }
     const drive = file.provider === 's3' ? null : google.drive({ version: 'v3', auth: await getAuthedGoogleClient(file.connectedAccount) })
     if (body.folderId) await prisma.folder.findFirstOrThrow({ where: { id: body.folderId, userId: req.user!.id, deletedAt: null } })
     if (body.name && drive) await drive.files.update({ fileId: file.providerFileId, requestBody: { name: body.name } })
-    const updated = await prisma.file.update({ where: { id: file.id }, data: { ...(body.name ? { name: body.name } : {}), ...(body.folderId !== undefined ? { folderId: body.folderId } : {}) }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
+    const updated = await prisma.file.update({ where: { id: file.id }, data: { ...(body.name ? { name: body.name } : {}), ...(body.folderId !== undefined && file.userId === req.user!.id ? { folderId: body.folderId } : {}) }, include: { connectedAccount: { select: { id: true, email: true, provider: true } }, folder: { select: { id: true, name: true } } } })
     await createAuditLog(req.user!.id, 'UPDATE_FILE', 'file', updated.id, { name: updated.name, updates: body })
     return res.json({ file: { ...updated, sizeBytes: updated.sizeBytes.toString() } })
   } catch (error) {
@@ -306,7 +357,13 @@ fileRouter.patch('/:id', async (req: AuthRequest, res, next) => {
 fileRouter.post('/:id/share', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const role = await requireFileAccess(req, res, fileId, 'editor')
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, status: 'active' } })
+    // Share links create a public URL — only the owner may create them.
+    if (file.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'Only the owner can create a share link.' })
+    }
     const existingShare = await prisma.fileShare.findFirst({ where: { fileId: file.id, userId: req.user!.id, enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: { createdAt: 'desc' } })
 
     let shareId = existingShare?.id
@@ -333,7 +390,14 @@ fileRouter.post('/:id/share', async (req: AuthRequest, res, next) => {
 fileRouter.post('/:id/public-permission', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    const role = await requireFileAccess(req, res, fileId, 'editor')
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId }, include: { connectedAccount: true } })
+    // Only the owner may publish a file publicly on Google Drive — an editor
+    // invitee granting 'anyone' access is a privilege escalation beyond edit.
+    if (file.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'Only the owner can make this file public.' })
+    }
     if (file.provider !== 'google_drive') {
       return res.status(400).json({ code: 'UNSUPPORTED_PROVIDER', message: 'Only Google Drive files can be made public.' })
     }
@@ -356,6 +420,8 @@ fileRouter.post('/:id/public-permission', requireAuth, async (req: AuthRequest, 
 fileRouter.delete('/:id/share', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
+    const role = await requireFileAccess(req, res, fileId, 'editor')
+    if (!role) return
     await prisma.fileShare.updateMany({ where: { fileId, userId: req.user!.id, enabled: true }, data: { enabled: false } })
     return res.json({ status: 'ok' })
   } catch (error) {
@@ -366,7 +432,9 @@ fileRouter.delete('/:id/share', async (req: AuthRequest, res, next) => {
 fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const role = await requireFileAccess(req, res, fileId)
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, status: 'active' } })
     const token = randomToken(32)
     await prisma.$transaction([
       prisma.filePreviewToken.deleteMany({ where: { userId: req.user!.id, expiresAt: { lt: new Date() } } }),
@@ -382,7 +450,9 @@ fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
 fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    const role = await requireFileAccess(req, res, fileId)
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId }, include: { connectedAccount: true } })
     if (file.provider === 's3') return res.json({ url: null })
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
@@ -399,7 +469,9 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
 fileRouter.get('/:id/download', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id }, include: { connectedAccount: true } })
+    const role = await requireFileAccess(req, res, fileId)
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId }, include: { connectedAccount: true } })
     return streamProviderFile(file, req.headers.range, res, { disposition: 'attachment' })
   } catch (error) {
     return next(error)
@@ -409,7 +481,12 @@ fileRouter.get('/:id/download', async (req: AuthRequest, res, next) => {
 fileRouter.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
-    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const role = await requireFileAccess(req, res, fileId, 'editor')
+    if (!role) return
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, status: 'active' } })
+    if (file.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'Only the owner can delete this file.' })
+    }
     await prisma.file.update({ where: { id: file.id }, data: { status: 'deleted', deletedAt: new Date() } })
     await createAuditLog(req.user!.id, 'TRASH_FILE', 'file', file.id, { name: file.name })
     return res.json({ status: 'ok' })

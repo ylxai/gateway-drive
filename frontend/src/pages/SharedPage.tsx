@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, FileArchive, Folder, Trash2, Users, UserCheck } from 'lucide-react'
+import { Check, Clock, FileArchive, Folder, Trash2, Users, UserCheck, X } from 'lucide-react'
 import { MetricCard } from '@/components/drive/MetricCard'
 import { PageHeader } from '@/components/drive/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -49,6 +49,11 @@ export function SharedPage() {
     await loadInvites()
   }
 
+  async function respondInvite(id: string, action: 'accept' | 'decline') {
+    await apiFetch(`/invites/${id}/${action}`, { method: 'POST' })
+    await loadInvites()
+  }
+
   return (
     <>
       <PageHeader title="Shared" description="Files and folders shared with members or shared with you." />
@@ -68,7 +73,10 @@ export function SharedPage() {
                 <ResourceIcon type={invite.targetType} />
                 <div className="min-w-0"><p className="truncate font-semibold text-slate-950">{invite.target?.name ?? 'Unavailable resource'}</p><p className="text-sm text-slate-500 capitalize">{invite.targetType} • {invite.role}{invite.target?.sizeBytes ? ` • ${formatBytes(invite.target.sizeBytes)}` : ''}</p></div>
               </div>
-              <span className={cn('w-fit rounded-full px-3 py-1 text-xs font-bold capitalize', invite.status === 'accepted' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{invite.status}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={cn('rounded-full px-3 py-1 text-xs font-bold capitalize', invite.status === 'accepted' ? 'bg-emerald-50 text-emerald-700' : invite.status === 'revoked' ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-700')}>{invite.status}</span>
+                {invite.status === 'pending' ? <><Button size="sm" onClick={() => respondInvite(invite.id, 'accept')}><Check className="h-4 w-4" />Accept</Button><Button size="sm" variant="outline" onClick={() => respondInvite(invite.id, 'decline')}><X className="h-4 w-4" />Decline</Button></> : null}
+              </div>
             </div>
           ))}
         </div>
