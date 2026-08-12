@@ -17,8 +17,8 @@ async function assertTargetOwner(userId: string, targetType: string, targetId: s
 }
 
 async function resolveTargets(invites: InviteRecord[]) {
-  const fileIds = invites.filter((invite: any) => invite.targetType === 'file').map((invite) => invite.targetId)
-  const folderIds = invites.filter((invite: any) => invite.targetType === 'folder').map((invite) => invite.targetId)
+  const fileIds = invites.filter((invite) => invite.targetType === 'file').map((invite) => invite.targetId)
+  const folderIds = invites.filter((invite) => invite.targetType === 'folder').map((invite) => invite.targetId)
   const [files, folders] = await Promise.all([
     prisma.file.findMany({ where: { id: { in: fileIds }, status: 'active' }, select: { id: true, name: true, mimeType: true, sizeBytes: true, folderId: true } }),
     prisma.folder.findMany({ where: { id: { in: folderIds }, deletedAt: null }, select: { id: true, name: true } }),
@@ -57,7 +57,7 @@ inviteRouter.get('/', async (req: AuthRequest, res, next) => {
     const emails = [...new Set(sent.map((invite) => invite.inviteeEmail))]
     const users = await prisma.user.findMany({ where: { email: { in: emails } }, select: { id: true, name: true, email: true } })
     const userByEmail = new Map(users.map((user) => [user.email, user]))
-    const acceptedInvites = sent.filter((invite: any) => invite.status === 'pending' && userByEmail.has(invite.inviteeEmail))
+    const acceptedInvites = sent.filter((invite) => invite.status === 'pending' && userByEmail.has(invite.inviteeEmail))
     if (acceptedInvites.length > 0) await prisma.workspaceInvite.updateMany({ where: { id: { in: acceptedInvites.map((invite) => invite.id) } }, data: { status: 'accepted', acceptedAt: new Date() } })
     const targetByKey = await resolveTargets(allInvites)
     const sentInvites = sent.map((invite) => serializeInvite({ ...invite, status: userByEmail.has(invite.inviteeEmail) ? 'accepted' : invite.status, acceptedAt: userByEmail.has(invite.inviteeEmail) ? invite.acceptedAt ?? new Date() : invite.acceptedAt }, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, userByEmail.get(invite.inviteeEmail)))

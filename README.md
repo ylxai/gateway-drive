@@ -43,9 +43,12 @@ npm run dev                   # http://localhost:5173
 ### Docker
 
 ```bash
-cp .env.docker.example .env
+# Required secrets have NO defaults — set POSTGRES_PASSWORD, JWT_ACCESS_SECRET,
+# TOKEN_ENCRYPTION_KEY (and optionally FRONTEND_URL / VITE_API_URL) in .env first.
 docker compose up -d --build
 ```
+
+> The primary deployment for this repo uses [tose.sh](https://tose.sh) with a local `.env.tose` (git-ignored); the `docker-compose.yml` flow is provided as an alternative.
 
 ## Architecture
 

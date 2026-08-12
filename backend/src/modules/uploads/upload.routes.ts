@@ -8,7 +8,7 @@ import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { ensureGoogleAppFolder, getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
-import { buildS3ObjectKey, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
+import { buildS3ObjectKey, deleteS3Object, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
 import { createAuditLog } from '../../utils/audit.js'
 
 export const uploadRouter = Router()
@@ -49,8 +49,8 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     include: { storageAccount: true },
   })
 
-  const stale = accounts.filter((account: any) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
-  await Promise.allSettled(stale.map(async (account: any) => {
+  const stale = accounts.filter((account) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
+  await Promise.allSettled(stale.map(async (account) => {
     try {
       if (account.provider === 's3') {
         await syncS3Quota(account.id)
@@ -72,7 +72,7 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
   })
 
   const eligible = fresh
-    .map((account: any) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
+    .map((account) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))
     .filter(({ availableBytes }) => availableBytes === null || availableBytes >= sizeBytes)
 
   if (eligible.length === 0) return null
@@ -90,13 +90,13 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
 
   if (mode === 'round_robin') {
     const ordered = byPriority(eligible, priorityAccountIds)
-    const selected = ordered[policy.roundRobinCursor % ordered.length]?.account ?? ordered[0]?.account ?? null
+    const selected = ordered.length > 0 ? ordered[policy.roundRobinCursor % ordered.length]?.account ?? null : null
     await prisma.uploadRoutingPolicy.update({ where: { userId }, data: { roundRobinCursor: policy.roundRobinCursor + 1 } })
     return selected
   }
 
   return eligible
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       if (a.availableBytes === null && b.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (a.availableBytes === null) return a.account.provider === 's3' ? -1 : 1
       if (b.availableBytes === null) return b.account.provider === 's3' ? 1 : -1
@@ -111,7 +111,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     if (!contentType?.includes('multipart/form-data')) return res.status(400).json({ code: 'UPLOAD_INVALID_CONTENT_TYPE', message: 'multipart/form-data required.' })
 
     const busboy = Busboy({ headers: req.headers, limits: { files: 25, fileSize: env.MAX_UPLOAD_BYTES } })
-    const fields: { sizeBytes?: bigint; fileName?: string; mimeType?: string; folderId?: string } = {}
+    const fields: { sizeBytes?: bigint; fileName?: string; mimeType?: string; folderId?: string; targetAccountId?: string } = {}
     let batchMeta: UploadMeta[] | null = null
     let responded = false
     let fileSeen = false
@@ -119,7 +119,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     const completed: Array<Record<string, unknown>> = []
     const failed: Array<{ fileName: string; code: string; message: string }> = []
     const pendingUploads: Array<Promise<void>> = []
-    const syncedAccountIds = new Set<string>()
+    const syncedAccounts = new Map<string, string>() // accountId -> provider
 
     const fail = async (status: number, code: string, message: string) => {
       if (responded) return
@@ -165,7 +165,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         }
 
         const folderId = meta.folderId || null
-        let targetAccountId: string | undefined = undefined
+        let targetAccountId = fields.targetAccountId
         if (folderId) {
           const folderRecord = await prisma.folder.findFirstOrThrow({ where: { id: folderId, userId: req.user!.id, deletedAt: null } })
           if (folderRecord.connectedAccountId) {
@@ -233,7 +233,22 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         }
 
         if (streamedBytes !== meta.sizeBytes) {
-          if (s3FileId) await prisma.file.update({ where: { id: s3FileId }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined)
+          if (s3FileId) {
+            // Remove the partially-uploaded S3 object too — otherwise the orphan
+            // inflates the quota used-bytes (syncS3Quota sums bucket objects) forever.
+            try {
+              const provisional = await prisma.file.findUniqueOrThrow({ where: { id: s3FileId }, include: { connectedAccount: true } })
+              await deleteS3Object(provisional)
+            } catch { /* best-effort cleanup */ }
+            await prisma.file.update({ where: { id: s3FileId }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined)
+          } else if (providerFileId && account.provider === 'google_drive') {
+            // Delete the orphaned Google Drive file — the DB record is never created on mismatch
+            try {
+              const cleanupAuth = await getAuthedGoogleClient(account)
+              const cleanupDrive = google.drive({ version: 'v3', auth: cleanupAuth })
+              await cleanupDrive.files.delete({ fileId: providerFileId })
+            } catch { /* best-effort cleanup */ }
+          }
           await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'failed', errorMessage: 'Streamed byte count did not match declared size.' } })
           failed.push({ fileName, code: 'UPLOAD_SIZE_MISMATCH', message: 'Streamed byte count did not match declared size.' })
           return
@@ -245,7 +260,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           completed.push({ ...file, sizeBytes: file.sizeBytes.toString() })
         }
         await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
-        syncedAccountIds.add(account.id)
+        syncedAccounts.set(account.id, account.provider)
       } catch (error) {
         fileStream.resume()
         logUpload('file upload failed', { fileName, message: error instanceof Error ? error.message : 'Upload failed' })
@@ -258,6 +273,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
       if (name === 'fileName') fields.fileName = value
       if (name === 'mimeType') fields.mimeType = value
       if (name === 'folderId') fields.folderId = value
+      if (name === 'targetAccountId') fields.targetAccountId = value
       if (name === 'filesMeta') {
         const parsed = parseBatchMeta(value)
         if (parsed) batchMeta = parsed
@@ -284,9 +300,10 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         responded = true
         logUpload('response sent', { completed: completed.length, failed: failed.length })
 
-        // Sync quotas once per account after batch completes
-        for (const accountId of syncedAccountIds) {
-          syncGoogleQuota(accountId).catch((err) => logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' }))
+        // Sync quotas once per account after batch completes (use the provider-appropriate sync)
+        for (const [accountId, provider] of syncedAccounts) {
+          const sync = provider === 's3' ? syncS3Quota(accountId) : syncGoogleQuota(accountId)
+          sync.catch((err) => logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' }))
         }
 
         if (completed.length === 0) return res.status(400).json({ code: failed[0]?.code ?? 'UPLOAD_FAILED', message: failed[0]?.message ?? 'Upload failed', failed })
@@ -402,6 +419,21 @@ uploadRouter.post('/resumable/init', requireAuth, async (req: AuthRequest, res, 
 })
 
 // 2. Query/Resume resumable status
+// 2b. Abandon a resumable session (used by the frontend when it falls back to
+// the multipart endpoint for non-Google providers).
+uploadRouter.delete('/resumable/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await prisma.uploadSession.updateMany({
+      where: { id: String(req.params.id), userId: req.user!.id, status: 'uploading' },
+      data: { status: 'failed', errorMessage: 'Abandoned by client (multipart fallback).' },
+    })
+    return res.json({ status: 'ok' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+// 3. Upload chunk
 uploadRouter.get('/resumable/status/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const session = await prisma.uploadSession.findFirstOrThrow({
@@ -471,7 +503,7 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
     const totalBytes = BigInt(match[3])
 
     if (!session.googleSessionUri || !session.targetConnectedAccountId) {
-      return res.status(400).json({ code: 'UNSUPPORTED_PROVIDER', message: 'Only Google Drive resumable uploads supported.' })
+      return res.status(400).json({ code: 'UNSUPPORTED_PROVIDER', message: 'Resumable chunk upload is only supported for Google Drive sessions. Other providers use the multipart upload endpoint.' })
     }
 
     const account = await prisma.connectedAccount.findFirstOrThrow({

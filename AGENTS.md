@@ -6,17 +6,16 @@ Gateway Drive is a Google Drive storage gateway. It lets users register/login wi
 
 ## Repository Structure
 
-- `backend/`: Express API, TypeScript, Prisma schema/migrations, MySQL access, auth, Google OAuth/Drive integration.
+- `backend/`: Express API, TypeScript, Prisma schema/migrations, PostgreSQL access, auth, Google OAuth/Drive integration.
 - `frontend/`: Vite React app, protected dashboard UI, file/folder management, sharing, uploads, quota/settings pages.
-- `docker-compose.yml`: MySQL, backend, and nginx-served frontend services.
-- `.env.docker.example`: Docker environment template.
+- `docker-compose.yml`: PostgreSQL (`db` service), backend, and nginx-served frontend services. Deployment in this repo uses tose.sh with a local `.env.tose` (git-ignored).
 - `README.md`: local setup, Google Cloud setup, Docker notes, deployment notes.
 
 ## Requirements
 
 - Node.js 20+
 - npm
-- MySQL 8+
+- PostgreSQL 14+ (local, or managed like Neon; `DATABASE_URL` + `DIRECT_URL` required)
 - Google Cloud project with Google Drive API enabled
 - Google OAuth client ID and secret
 
@@ -26,7 +25,7 @@ Stack:
 - Express 5
 - TypeScript
 - Prisma 6
-- MySQL
+- PostgreSQL
 - Zod
 - JWT bearer auth
 - Argon2 password hashing
@@ -41,7 +40,8 @@ Important files:
 - `backend/src/config/prisma.ts`: Prisma client.
 - `backend/prisma/schema.prisma`: database schema.
 - `backend/src/middleware/auth.middleware.ts`: bearer auth.
-- `backend/src/middleware/error.middleware.ts`: JSON error responses.
+- `backend/src/middleware/admin.middleware.ts`: admin-only guard for `/system/*` endpoints (uses `ADMIN_USER_IDS`).
+- `backend/src/middleware/error.middleware.ts`: JSON error responses (Zod→400, not-found→404, internal→500).
 - `backend/src/modules/**`: feature route modules and provider services.
 - `backend/src/modules/files/stream-google-file.ts`: Google file preview/download streaming.
 - `backend/src/scripts/seed-google-config.ts`: stores encrypted global Google OAuth config.
@@ -56,10 +56,12 @@ Commands:
 
 Environment:
 - `DATABASE_URL`
+- `DIRECT_URL`
 - `APP_PORT`
 - `FRONTEND_URL`
 - `JWT_ACCESS_SECRET`
 - `TOKEN_ENCRYPTION_KEY`
+- `ADMIN_USER_IDS` (optional; comma-separated user IDs allowed to call `/system/*`)
 - `RECAPTCHA_SECRET_KEY` (optional; enables captcha verification when paired with frontend site key)
 - `ACCESS_TOKEN_TTL_SECONDS`
 - `REFRESH_TOKEN_TTL_DAYS`
@@ -88,7 +90,7 @@ Security rules:
 - Never log access tokens, refresh tokens, OAuth client secrets, JWT secrets, encryption keys, or raw public share tokens.
 - Google tokens are encrypted before database storage.
 - App refresh tokens are hashed before database storage.
-- Auth handoff, share, and preview tokens are stored as hashes where applicable.
+- Auth handoff and preview tokens are stored as hashes; share token values are encrypted at rest (AES-GCM) with a hash column for lookup — raw share tokens are only returned to the owner once at creation.
 - Uploaded files must stream through backend to Google Drive folder `9drive`; do not store uploaded files on disk.
 - Keep CORS restricted by `FRONTEND_URL`.
 - Keep auth/token storage behavior centralized; do not change without explicit reason.
@@ -232,20 +234,21 @@ Uploads:
 ## Docker
 
 Commands:
-- `docker compose up -d --build`: build and start MySQL, backend, frontend.
+- `docker compose up -d --build`: build and start PostgreSQL, backend, frontend.
 - `docker compose exec backend npm run seed:google-config`: seed Google config inside backend container.
 - `docker compose logs -f backend`: backend logs.
 - `docker compose logs -f frontend`: frontend logs.
-- `docker compose logs -f mysql`: MySQL logs.
+- `docker compose logs -f db`: PostgreSQL logs.
 - `docker compose down`: stop services.
 - `docker compose down -v`: stop services and remove DB volume.
 
 Docker notes:
-- MySQL image is `mysql:8.4`.
-- Backend listens on `4000`.
-- Frontend build is served by nginx on host port `5173`.
+- PostgreSQL image is `postgres:16-alpine`.
+- Backend listens on `4000` (host port `4001`).
+- Frontend build is served by nginx on host port `5174`.
 - Frontend build arg `VITE_API_URL` is embedded at build time.
 - Rebuild frontend when `VITE_API_URL` changes.
+- `JWT_ACCESS_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` have NO defaults — `docker compose` fails fast if unset. Secrets are supplied via the local `.env` (or `.env.tose` for tose.sh deployments).
 
 ## Verification
 
@@ -283,3 +286,16 @@ Manual smoke test:
 - Do not change auth/token storage behavior without explicit reason.
 - Do not change Google OAuth scopes or redirect behavior without checking README and env requirements.
 - Do not change upload behavior to write files to disk.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

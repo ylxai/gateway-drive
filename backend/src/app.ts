@@ -1,6 +1,7 @@
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import express from 'express'
+import helmet from 'helmet'
 import { env } from './config/env.js'
 import { errorMiddleware } from './middleware/error.middleware.js'
 import { authRouter } from './modules/auth/auth.routes.js'
@@ -22,6 +23,20 @@ import { csrfProtection } from './middleware/csrf.middleware.js'
 export const app = express()
 app.set('trust proxy', true)
 
+app.use(helmet({
+  // The frontend lives on a different origin and embeds media/previews from this
+  // API via <img>/<video>/<iframe>. Helmet's defaults (CORP same-origin, XFO
+  // SAMEORIGIN, frame-ancestors 'self') would block those cross-origin loads.
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: false,
+  frameguard: false,
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'frame-ancestors': [env.FRONTEND_URL],
+    },
+  },
+}))
 app.use(cors({ origin: env.FRONTEND_URL, credentials: true }))
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))

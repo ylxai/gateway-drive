@@ -27,6 +27,44 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   })
   const [resumableSessions, setResumableSessions] = useState<Record<string, ResumableSession>>({})
 
+  // Streaming multipart upload (used for non-Google providers such as S3).
+  // Backend: POST /uploads (busboy) — streams directly to the provider, no disk buffering.
+  async function uploadSingleFileMultipart(file: File, folderId: string | null, onProgress: (percent: number) => void, targetAccountId?: string | null) {
+    const form = new FormData()
+    form.append('fileName', file.name)
+    form.append('mimeType', file.type || 'application/octet-stream')
+    form.append('sizeBytes', String(file.size))
+    if (folderId) form.append('folderId', folderId)
+    if (targetAccountId) form.append('targetAccountId', targetAccountId)
+    form.append('file-0', file)
+
+    // The browser streams multipart bodies natively, so byte-level progress is
+    // not observable. Simulate coarse progress so the panel doesn't sit at 0%.
+    let simulated = 1
+    onProgress(simulated)
+    const progressTimer = window.setInterval(() => {
+      simulated = Math.min(simulated + 5, 95)
+      onProgress(simulated)
+    }, 500)
+
+    try {
+      const data = await apiFetch<{ file?: { name?: string } }>('/uploads', {
+        method: 'POST',
+        body: form,
+      })
+      if (data.file?.name) {
+        onProgress(100)
+        return
+      }
+
+      // Batch response shape — single-file uploads come back as { file },
+      // so reaching here means the file field was missing entirely.
+      throw new Error('Upload completed but no file record was returned.')
+    } finally {
+      window.clearInterval(progressTimer)
+    }
+  }
+
   async function uploadSingleFileResumable(file: File, folderId: string | null, onProgress: (percent: number) => void, sessionIdToRetry?: string, targetAccountId?: string | null) {
     const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB chunks (must be multiple of 256KB for Google Drive)
     let sessionId = sessionIdToRetry || ''
@@ -56,6 +94,21 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         ...prev,
         [file.name]: { sessionId, file, folderId, targetAccountId }
       }))
+
+      // Resumable chunk upload only supports Google Drive. For S3 (and any
+      // future provider) fall back to the streaming multipart endpoint. Mark
+      // the unused resumable session as abandoned so no orphan rows remain.
+      if (initData.provider !== 'google_drive') {
+        try {
+          await apiFetch(`/uploads/resumable/${sessionId}`, { method: 'DELETE' })
+        } catch { /* best-effort cleanup */ }
+        setResumableSessions(prev => {
+          const { [file.name]: _unused, ...rest } = prev
+          return rest
+        })
+        await uploadSingleFileMultipart(file, folderId, onProgress, targetAccountId)
+        return
+      }
     } else {
       const statusData = await apiFetch<{ status: string; offset: string }>(`/uploads/resumable/status/${sessionId}`)
       startOffset = Number(statusData.offset)

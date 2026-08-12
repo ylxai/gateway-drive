@@ -3,6 +3,7 @@ import { exec, spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { requireAuth } from '../../middleware/auth.middleware.js'
+import { requireAdmin } from '../../middleware/admin.middleware.js'
 import { prisma } from '../../config/prisma.js'
 import { decryptText, encryptText } from '../../utils/crypto.js'
 import { env } from '../../config/env.js'
@@ -10,7 +11,7 @@ import { env } from '../../config/env.js'
 export const systemRouter = Router()
 
 
-systemRouter.post('/update', requireAuth, (req, res, next) => {
+systemRouter.post('/update', requireAuth, requireAdmin, (req, res, next) => {
   const projectRoot = path.resolve(process.cwd(), '..')
   const updateScript = path.join(projectRoot, 'update.sh')
 
@@ -76,7 +77,7 @@ systemRouter.post('/update', requireAuth, (req, res, next) => {
   })
 })
 
-systemRouter.get('/update-log', requireAuth, (req, res) => {
+systemRouter.get('/update-log', requireAuth, requireAdmin, (req, res) => {
   const projectRoot = path.resolve(process.cwd(), '..')
   const logFile = path.join(projectRoot, 'update.log')
 
@@ -135,7 +136,7 @@ systemRouter.get('/google-config', requireAuth, async (req, res, next) => {
   }
 })
 
-systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
+systemRouter.post('/google-config', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const { clientId, clientSecret, redirectUri } = req.body
 
@@ -200,7 +201,7 @@ systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
   }
 })
 
-systemRouter.get('/backup', requireAuth, (_req, res, next) => {
+systemRouter.get('/backup', requireAuth, requireAdmin, (_req, res, next) => {
   try {
     // Parse DATABASE_URL to extract connection parameters for pg_dump
     const dbUrl = env.DATABASE_URL
@@ -224,7 +225,7 @@ systemRouter.get('/backup', requireAuth, (_req, res, next) => {
   }
 })
 
-systemRouter.post('/restore', requireAuth, (_req, res, next) => {
+systemRouter.post('/restore', requireAuth, requireAdmin, (_req, res, next) => {
   try {
     const dbUrl = env.DATABASE_URL
     const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/(.+)/)

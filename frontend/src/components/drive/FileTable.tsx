@@ -20,7 +20,7 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
         ) : null}
         {files.map((file) => {
           const selected = selectedFileIds.has(file.id ?? '')
-          const meta = mode === 'archived' ? file.location : mode === 'recent' ? file.openedDate : mode === 'starred' ? file.starredDate : file.date
+          const meta = mode === 'archived' ? file.location : mode === 'starred' ? file.starredDate : file.date
           return (
             <article key={file.id ?? file.name} draggable onDragStart={(event) => { event.dataTransfer.setData('text/plain', file.id ?? ''); event.dataTransfer.effectAllowed = 'move' }} onClick={() => onToggleFile?.(file)} onContextMenu={(event) => onFileContextMenu?.(event, file)} className={selected ? 'overflow-hidden rounded-2xl border file-selected p-3.5 shadow-sm cursor-grab active:cursor-grabbing' : 'overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm cursor-grab active:cursor-grabbing'}>
               <div className="flex items-center gap-3">
@@ -51,7 +51,6 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
               <th className="py-2.5 font-extrabold">Name</th>
               {mode === 'default' ? <th className="py-2.5 font-extrabold text-slate-500 font-semibold">Folder</th> : null}
               {mode === 'shared' ? <th className="py-2.5 font-extrabold">Owner</th> : null}
-              {mode === 'recent' ? <th className="py-2.5 font-extrabold">Last Opened</th> : null}
               {mode === 'starred' ? <th className="py-2.5 font-extrabold">Starred On</th> : null}
               {mode === 'archived' ? <th className="py-2.5 font-extrabold">Archived Date</th> : null}
               {mode === 'archived' ? <th className="py-2.5 font-extrabold">Original Location</th> : <th className="py-2.5 font-extrabold">Last Modified</th>}
@@ -84,7 +83,6 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
                   </td>
                 ) : null}
                 {mode === 'shared' ? <td className="py-2.5 text-slate-500">{file.owner}</td> : null}
-                {mode === 'recent' ? <td className="py-2.5 text-slate-500">{file.openedDate}</td> : null}
                 {mode === 'starred' ? <td className="py-2.5 text-slate-500">{file.starredDate}</td> : null}
                 {mode === 'archived' ? <td className="py-2.5 text-slate-500">{file.archivedDate}</td> : null}
                 <td className="py-2.5 text-slate-500">{mode === 'archived' ? file.location : file.date}</td>

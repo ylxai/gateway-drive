@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
-import { hashToken, randomToken } from '../../utils/crypto.js'
+import { decryptText, encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { getAuthedGoogleClient, syncGoogleAppFolderFiles, syncGoogleQuota } from '../google/google.service.js'
 import { deleteS3Object, syncS3Quota, createS3Client, getS3ConfigForAccount } from '../s3/s3.service.js'
 import { streamProviderFile } from './stream-file.js'
@@ -17,6 +17,19 @@ import { createAuditLog } from '../../utils/audit.js'
 
 
 export const fileRouter = Router()
+
+/**
+ * Convert a stored share token (encrypted, or legacy plaintext) back to the
+ * raw token value used in public URLs.
+ */
+function shareTokenToUrlValue(stored: string | null): string | null {
+  if (!stored) return null
+  // Encrypted tokens use the "iv:tag:ciphertext" shape.
+  if (stored.includes(':')) {
+    try { return decryptText(stored) } catch { return null }
+  }
+  return stored // legacy plaintext
+}
 
 fileRouter.get('/preview/:token', async (req, res, next) => {
   try {
@@ -92,7 +105,7 @@ fileRouter.get('/', async (req: AuthRequest, res, next) => {
       }),
       prisma.file.count({ where }),
     ])
-    return res.json({ files: files.map((file: any) => ({ ...file, sizeBytes: file.sizeBytes.toString() })), total, take: query.take, skip: query.skip })
+    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })), total, take: query.take, skip: query.skip })
   } catch (error) {
     return next(error)
   }
@@ -144,7 +157,7 @@ fileRouter.get('/trash', async (req: AuthRequest, res, next) => {
       },
       orderBy: { deletedAt: 'desc' }
     })
-    return res.json({ files: files.map((file: any) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
+    return res.json({ files: files.map((file) => ({ ...file, sizeBytes: file.sizeBytes.toString() })) })
   } catch (error) {
     return next(error)
   }
@@ -227,8 +240,9 @@ fileRouter.get('/shared-links', async (req: AuthRequest, res, next) => {
       orderBy: { createdAt: 'desc' },
     })
     return res.json({
-      shares: shares.filter((share: any) => share.file.status === 'active').map((share) => {
-        const url = share.token ? `${env.FRONTEND_URL}/public/files/${share.token}` : null
+      shares: shares.filter((share) => share.file.status === 'active').map((share) => {
+        const tokenValue = shareTokenToUrlValue(share.token)
+        const url = tokenValue ? `${env.FRONTEND_URL}/public/files/${tokenValue}` : null
         return {
           id: share.id,
           url,
@@ -299,11 +313,18 @@ fileRouter.post('/:id/share', async (req: AuthRequest, res, next) => {
     let token = existingShare?.token
     if (!existingShare) {
       token = randomToken(32)
-      const share = await prisma.fileShare.create({ data: { fileId: file.id, userId: req.user!.id, token, tokenHash: hashToken(token) } })
+      // Store the token encrypted at rest; only the hash is used for lookups.
+      const share = await prisma.fileShare.create({ data: { fileId: file.id, userId: req.user!.id, token: encryptText(token), tokenHash: hashToken(token) } })
       shareId = share.id
     }
 
-    return res.status(existingShare ? 200 : 201).json({ url: `${env.FRONTEND_URL}/public/files/${token}`, shareId })
+    // The raw token is returned exactly once (here); URLs are rebuilt from the
+    // decrypted value when listing shared links. Never fall back to emitting
+    // the stored ciphertext in a public URL when decryption fails.
+    const rawToken = shareTokenToUrlValue(token ?? null)
+    if (!rawToken) return res.status(500).json({ code: 'SHARE_TOKEN_UNREADABLE', message: 'Stored share token could not be read.' })
+
+    return res.status(existingShare ? 200 : 201).json({ url: `${env.FRONTEND_URL}/public/files/${rawToken}`, shareId })
   } catch (error) {
     return next(error)
   }
@@ -321,7 +342,7 @@ fileRouter.post('/:id/public-permission', requireAuth, async (req: AuthRequest, 
     await drive.permissions.create({
       fileId: file.providerFileId,
       requestBody: {
-        role: 'writer',
+        role: 'reader',
         type: 'anyone'
       }
     })
@@ -366,19 +387,8 @@ fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
     const auth = await getAuthedGoogleClient(file.connectedAccount)
     const drive = google.drive({ version: 'v3', auth })
 
-    // Automatically set permission to public writer when retrieving/copying the view URL!
-    try {
-      await drive.permissions.create({
-        fileId: file.providerFileId,
-        requestBody: {
-          role: 'writer',
-          type: 'anyone'
-        }
-      })
-    } catch (err: unknown) {
-      console.error('Failed to make Google Drive file public during view-url retrieval:', err instanceof Error ? err.message : String(err))
-    }
-
+    // NOTE: intentionally NOT setting any 'anyone' permission here. Files are only
+    // made public via the explicit POST /:id/public-permission endpoint.
     const metadata = await drive.files.get({ fileId: file.providerFileId, fields: 'webViewLink,webContentLink' })
     return res.json({ url: metadata.data.webViewLink ?? metadata.data.webContentLink })
   } catch (error) {
@@ -461,15 +471,30 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const url = exportTarget
             ? `https://www.googleapis.com/drive/v3/files/${file.providerFileId}/export?mimeType=${encodeURIComponent(exportTarget.mimeType)}`
             : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
-          const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) })
+          // Header-phase timeout only — never abort the response body mid-stream.
+          const controller = new AbortController()
+          const headerTimeout = setTimeout(() => controller.abort(), 30_000)
+          let response: Response
+          try {
+            response = await fetch(url, { headers, signal: controller.signal })
+          } finally {
+            clearTimeout(headerTimeout)
+          }
           if (!response.ok || !response.body) continue
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           stream = Readable.fromWeb(response.body as any)
         }
 
+        // Attach an error handler BEFORE appending so a failing source stream
+        // aborts the whole archive instead of silently producing a corrupt zip.
+        stream.on('error', (err: unknown) => {
+          console.error(`Failed to stream file ${file.name} into zip:`, err)
+          cleanup()
+        })
         archive!.append(stream, { name: fileName })
       } catch (err) {
         console.error(`Failed to add file ${file.name} to zip:`, err)
+        cleanup()
       }
     }
 

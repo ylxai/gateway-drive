@@ -1,7 +1,97 @@
 import { google } from 'googleapis'
 import type { ConnectedAccount, ProviderConfig } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
-import { decryptText, encryptText } from '../../utils/crypto.js'
+import { decryptText, encryptText, hashToken, randomToken } from '../../utils/crypto.js'
+import { hashPassword } from '../../utils/password.js'
+import { env } from '../../config/env.js'
+
+type GoogleTokens = {
+  access_token?: string | null
+  refresh_token?: string | null
+  expiry_date?: number | null
+}
+
+type GoogleProfile = {
+  id?: string | null
+  email?: string | null
+  verified_email?: boolean | null
+  name?: string | null
+  picture?: string | null
+}
+
+export type GoogleLoginResult = { redirectUrl: string }
+
+/**
+ * Shared Google OAuth login flow used by both the /auth/google/callback and
+ * /connected-accounts/google/callback routes (flow === 'login').
+ *
+ * Upserts the user + connected account, rotates the oauth state, syncs quota
+ * and issues a one-time auth handoff token. Returns the redirect URL for the
+ * frontend, or throws when the flow cannot complete.
+ */
+export async function completeGoogleLoginFlow(params: {
+  oauthStateId: string
+  providerConfigId: string
+  providerConfigScopes: string[]
+  tokens: GoogleTokens
+  profile: GoogleProfile
+}): Promise<GoogleLoginResult> {
+  const { oauthStateId, providerConfigId, providerConfigScopes, tokens, profile } = params
+  const providerAccountId = profile.id
+  const email = profile.email
+  if (!providerAccountId || !email) throw new Error('Google profile missing id or email.')
+  // Only link an unverified email to an existing password account if Google
+  // confirms the email is verified — otherwise an attacker could take over a
+  // matching account via the Google sign-in handoff.
+  if (profile.verified_email === false) throw new Error('Google email is not verified.')
+
+  const name = profile.name || email.split('@')[0] || 'Google User'
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: { email, name, passwordHash: await hashPassword(randomToken(32)) },
+    update: { name },
+  })
+
+  const existingAccount = await prisma.connectedAccount.findUnique({ where: { userId_provider_providerAccountId: { userId: user.id, provider: 'google_drive', providerAccountId } } })
+  const refreshTokenEncrypted = tokens.refresh_token ? encryptText(tokens.refresh_token) : existingAccount?.refreshTokenEncrypted
+  if (!refreshTokenEncrypted) throw new Error('Google login failed: no refresh token received and no existing account.')
+
+  const account = await prisma.connectedAccount.upsert({
+    where: { userId_provider_providerAccountId: { userId: user.id, provider: 'google_drive', providerAccountId } },
+    create: {
+      userId: user.id,
+      providerConfigId,
+      provider: 'google_drive',
+      providerAccountId,
+      email,
+      displayName: profile.name,
+      avatarUrl: profile.picture,
+      accessTokenEncrypted: encryptText(tokens.access_token ?? ''),
+      refreshTokenEncrypted,
+      tokenExpiresAt: new Date(tokens.access_token ? (tokens.expiry_date ?? Date.now() + 3600_000) : 0),
+      scopes: providerConfigScopes,
+      status: 'connected',
+    },
+    update: {
+      providerConfigId,
+      email,
+      displayName: profile.name,
+      avatarUrl: profile.picture,
+      accessTokenEncrypted: encryptText(tokens.access_token ?? ''),
+      refreshTokenEncrypted,
+      tokenExpiresAt: new Date(tokens.access_token ? (tokens.expiry_date ?? Date.now() + 3600_000) : 0),
+      scopes: providerConfigScopes,
+      status: 'connected',
+    },
+  })
+
+  await prisma.oauthState.update({ where: { id: oauthStateId }, data: { usedAt: new Date(), userId: user.id } })
+  await syncGoogleQuota(account.id).catch(() => undefined)
+
+  const handoffToken = randomToken()
+  await prisma.authHandoff.create({ data: { userId: user.id, tokenHash: hashToken(handoffToken), expiresAt: new Date(Date.now() + 5 * 60_000) } })
+  return { redirectUrl: `${env.FRONTEND_URL}/google-auth?token=${handoffToken}` }
+}
 
 const googleDriveFolderMimeType = 'application/vnd.google-apps.folder'
 const appFolderName = '9drive'
@@ -157,7 +247,7 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
 
   const existingFiles = await prisma.file.findMany({ where: { userId, connectedAccountId: account.id, provider: 'google_drive' } })
   const existingByProviderId = new Map(existingFiles.map((file) => [file.providerFileId, file]))
-  const driveFileIds = new Set(driveFiles.map((file: any) => file.id))
+  const driveFileIds = new Set(driveFiles.map((file) => file.id))
   let created = 0
   let updated = 0
   let deleted = 0
@@ -188,7 +278,7 @@ export async function syncGoogleAppFolderFiles(accountId: string, userId: string
     await prisma.file.createMany({ data: toCreate })
   }
 
-  const missingActiveIds = existingFiles.filter((file: any) => file.status === 'active' && !driveFileIds.has(file.providerFileId)).map((file: any) => file.id)
+  const missingActiveIds = existingFiles.filter((file) => file.status === 'active' && !driveFileIds.has(file.providerFileId)).map((file) => file.id)
   if (missingActiveIds.length > 0) {
     const result = await prisma.file.updateMany({ where: { id: { in: missingActiveIds }, userId }, data: { status: 'deleted', deletedAt: new Date() } })
     deleted = result.count
