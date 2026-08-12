@@ -8,7 +8,7 @@ export async function createAuditLog(userId: string, action: string, entityType:
         action,
         entityType,
         entityId,
-        metadata: metadata ? JSON.stringify(metadata) : undefined
+        metadata: metadata ?? undefined
       }
     })
   } catch (error) {
