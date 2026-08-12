@@ -319,8 +319,10 @@ fileRouter.post('/:id/share', async (req: AuthRequest, res, next) => {
     }
 
     // The raw token is returned exactly once (here); URLs are rebuilt from the
-    // decrypted value when listing shared links.
-    const rawToken = shareTokenToUrlValue(token ?? null) ?? token
+    // decrypted value when listing shared links. Never fall back to emitting
+    // the stored ciphertext in a public URL when decryption fails.
+    const rawToken = shareTokenToUrlValue(token ?? null)
+    if (!rawToken) return res.status(500).json({ code: 'SHARE_TOKEN_UNREADABLE', message: 'Stored share token could not be read.' })
 
     return res.status(existingShare ? 200 : 201).json({ url: `${env.FRONTEND_URL}/public/files/${rawToken}`, shareId })
   } catch (error) {
@@ -469,7 +471,15 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const url = exportTarget
             ? `https://www.googleapis.com/drive/v3/files/${file.providerFileId}/export?mimeType=${encodeURIComponent(exportTarget.mimeType)}`
             : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
-          const response = await fetch(url, { headers })
+          // Header-phase timeout only — never abort the response body mid-stream.
+          const controller = new AbortController()
+          const headerTimeout = setTimeout(() => controller.abort(), 30_000)
+          let response: Response
+          try {
+            response = await fetch(url, { headers, signal: controller.signal })
+          } finally {
+            clearTimeout(headerTimeout)
+          }
           if (!response.ok || !response.body) continue
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           stream = Readable.fromWeb(response.body as any)

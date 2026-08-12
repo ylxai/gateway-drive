@@ -14,6 +14,7 @@ type GoogleTokens = {
 type GoogleProfile = {
   id?: string | null
   email?: string | null
+  verified_email?: boolean | null
   name?: string | null
   picture?: string | null
 }
@@ -39,6 +40,10 @@ export async function completeGoogleLoginFlow(params: {
   const providerAccountId = profile.id
   const email = profile.email
   if (!providerAccountId || !email) throw new Error('Google profile missing id or email.')
+  // Only link an unverified email to an existing password account if Google
+  // confirms the email is verified — otherwise an attacker could take over a
+  // matching account via the Google sign-in handoff.
+  if (profile.verified_email === false) throw new Error('Google email is not verified.')
 
   const name = profile.name || email.split('@')[0] || 'Google User'
   const user = await prisma.user.upsert({
@@ -63,7 +68,7 @@ export async function completeGoogleLoginFlow(params: {
       avatarUrl: profile.picture,
       accessTokenEncrypted: encryptText(tokens.access_token ?? ''),
       refreshTokenEncrypted,
-      tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
+      tokenExpiresAt: new Date(tokens.access_token ? (tokens.expiry_date ?? Date.now() + 3600_000) : 0),
       scopes: providerConfigScopes,
       status: 'connected',
     },
@@ -74,7 +79,7 @@ export async function completeGoogleLoginFlow(params: {
       avatarUrl: profile.picture,
       accessTokenEncrypted: encryptText(tokens.access_token ?? ''),
       refreshTokenEncrypted,
-      tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
+      tokenExpiresAt: new Date(tokens.access_token ? (tokens.expiry_date ?? Date.now() + 3600_000) : 0),
       scopes: providerConfigScopes,
       status: 'connected',
     },

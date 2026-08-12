@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/drive/PageHeader'
 import { apiFetch, formatBytes, formatDate } from '@/lib/api'
 import type { FileItem } from '@/data/drive-data'
 
-type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; deletedAt?: string | null }
+type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; deletedAt?: string | null; folder?: { id: string; name: string } | null }
 
 function mimeToKind(mimeType: string): FileItem['kind'] {
   if (mimeType.startsWith('image/')) return 'image'
@@ -25,6 +25,7 @@ function mapFile(file: BackendFile): FileItem {
     sizeBytes: file.sizeBytes,
     date: formatDate(file.deletedAt ?? file.createdAt),
     archivedDate: file.deletedAt ? formatDate(file.deletedAt) : undefined,
+    location: file.folder?.name ?? '—',
     size: formatBytes(file.sizeBytes),
     access: 'Only You',
     kind: mimeToKind(file.mimeType),

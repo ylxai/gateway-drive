@@ -174,9 +174,11 @@ connectedAccountRouter.get('/google/connect', requireAuth, async (req: AuthReque
 })
 
 connectedAccountRouter.get('/google/callback', async (req, res, next) => {
+  let flow: string | null = null
   try {
     const query = z.object({ code: z.string(), state: z.string() }).parse(req.query)
     const oauthState = await prisma.oauthState.findUniqueOrThrow({ where: { stateHash: hashToken(query.state) }, include: { providerConfig: true } })
+    flow = oauthState.flow
     if (oauthState.usedAt || oauthState.expiresAt < new Date()) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state expired.' })
     const client = createOAuthClient(oauthState.providerConfig!)
     const tokenResult = await client.getToken(query.code)
@@ -238,7 +240,9 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     return res.redirect(`${env.FRONTEND_URL}/google-connected?status=success`)
   } catch (error) {
     console.error('Google OAuth callback failed:', error)
-    return res.redirect(`${env.FRONTEND_URL}/google-connected?status=error`)
+    // Login flows started from /auth land on the google-auth page; connect flows
+    // land on google-connected. Route the error to the matching frontend page.
+    return res.redirect(`${env.FRONTEND_URL}/${flow === 'login' ? 'google-auth' : 'google-connected'}?status=error`)
   }
 })
 

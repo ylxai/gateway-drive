@@ -40,14 +40,23 @@ export async function streamGoogleFile(file: FileWithAccount, range: string | un
   const url = exportTarget
     ? `https://www.googleapis.com/drive/v3/files/${file.providerFileId}/export?mimeType=${encodeURIComponent(exportTarget.mimeType)}`
     : `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media`
-  const response = await fetch(url, {
-    headers: {
-      ...headers,
-      ...(range && !exportTarget ? { Range: range } : {}),
-    },
-    // NOTE: no AbortSignal.timeout here — it would abort the response BODY after
-    // N seconds, truncating large file streams mid-download.
-  })
+  // Header-phase timeout only: abort a stalled connection while waiting for
+  // response headers, then clear the timer so the response BODY can stream
+  // without being truncated for large files.
+  const controller = new AbortController()
+  const headerTimeout = setTimeout(() => controller.abort(), 30_000)
+  let response: globalThis.Response
+  try {
+    response = await fetch(url, {
+      headers: {
+        ...headers,
+        ...(range && !exportTarget ? { Range: range } : {}),
+      },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(headerTimeout)
+  }
 
   if (!response.ok) {
     const message = await response.text().catch(() => response.statusText)

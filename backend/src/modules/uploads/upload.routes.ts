@@ -8,7 +8,7 @@ import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { ensureGoogleAppFolder, getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
-import { buildS3ObjectKey, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
+import { buildS3ObjectKey, deleteS3Object, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
 import { createAuditLog } from '../../utils/audit.js'
 
 export const uploadRouter = Router()
@@ -234,6 +234,12 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
 
         if (streamedBytes !== meta.sizeBytes) {
           if (s3FileId) {
+            // Remove the partially-uploaded S3 object too — otherwise the orphan
+            // inflates the quota used-bytes (syncS3Quota sums bucket objects) forever.
+            try {
+              const provisional = await prisma.file.findUniqueOrThrow({ where: { id: s3FileId }, include: { connectedAccount: true } })
+              await deleteS3Object(provisional)
+            } catch { /* best-effort cleanup */ }
             await prisma.file.update({ where: { id: s3FileId }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined)
           } else if (providerFileId && account.provider === 'google_drive') {
             // Delete the orphaned Google Drive file — the DB record is never created on mismatch
@@ -413,6 +419,21 @@ uploadRouter.post('/resumable/init', requireAuth, async (req: AuthRequest, res, 
 })
 
 // 2. Query/Resume resumable status
+// 2b. Abandon a resumable session (used by the frontend when it falls back to
+// the multipart endpoint for non-Google providers).
+uploadRouter.delete('/resumable/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    await prisma.uploadSession.updateMany({
+      where: { id: String(req.params.id), userId: req.user!.id, status: 'uploading' },
+      data: { status: 'failed', errorMessage: 'Abandoned by client (multipart fallback).' },
+    })
+    return res.json({ status: 'ok' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+// 3. Upload chunk
 uploadRouter.get('/resumable/status/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const session = await prisma.uploadSession.findFirstOrThrow({

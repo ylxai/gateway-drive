@@ -8,15 +8,18 @@ import { apiFetch } from '@/lib/api'
 import type { FileItem } from '@/data/drive-data'
 
 // The backend does not yet expose a "starred" flag on files. Until it does,
-// this page renders an honest empty state fed by a real API call (so the
-// numbers and layout reflect actual account state, never mock data).
+// this page renders an honest empty state, but still issues a minimal API call
+// as a connectivity check so the layout reflects a real, live backend.
+// TODO: Once the backend exposes a "starred" flag, drive this page's UI state
+// from the API response instead of discarding it.
 export function StarredPage() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
-    apiFetch<{ files: FileItem[] }>('/files?take=100')
+    // Minimal payload — the response is not yet used to drive UI state.
+    apiFetch<{ files: FileItem[] }>('/files?take=1')
       .then(() => { if (active) setFiles([]) })
       .catch(() => { if (active) setFiles([]) })
       .finally(() => { if (active) setLoading(false) })

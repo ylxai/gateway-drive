@@ -6,9 +6,9 @@ Gateway Drive is a Google Drive storage gateway. It lets users register/login wi
 
 ## Repository Structure
 
-- `backend/`: Express API, TypeScript, Prisma schema/migrations, MySQL access, auth, Google OAuth/Drive integration.
+- `backend/`: Express API, TypeScript, Prisma schema/migrations, PostgreSQL access, auth, Google OAuth/Drive integration.
 - `frontend/`: Vite React app, protected dashboard UI, file/folder management, sharing, uploads, quota/settings pages.
-- `docker-compose.yml`: MySQL, backend, and nginx-served frontend services.
+- `docker-compose.yml`: PostgreSQL (`db` service), backend, and nginx-served frontend services.
 - `.env.docker.example`: Docker environment template.
 - `README.md`: local setup, Google Cloud setup, Docker notes, deployment notes.
 
@@ -26,7 +26,7 @@ Stack:
 - Express 5
 - TypeScript
 - Prisma 6
-- MySQL
+- PostgreSQL
 - Zod
 - JWT bearer auth
 - Argon2 password hashing
@@ -235,11 +235,11 @@ Uploads:
 ## Docker
 
 Commands:
-- `docker compose up -d --build`: build and start MySQL, backend, frontend.
+- `docker compose up -d --build`: build and start PostgreSQL, backend, frontend.
 - `docker compose exec backend npm run seed:google-config`: seed Google config inside backend container.
 - `docker compose logs -f backend`: backend logs.
 - `docker compose logs -f frontend`: frontend logs.
-- `docker compose logs -f mysql`: MySQL logs.
+- `docker compose logs -f db`: PostgreSQL logs.
 - `docker compose down`: stop services.
 - `docker compose down -v`: stop services and remove DB volume.
 

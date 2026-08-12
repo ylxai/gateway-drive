@@ -24,7 +24,6 @@ function mapFile(file: BackendFile): FileItem {
     sizeBytes: file.sizeBytes,
     createdAt: file.createdAt,
     date: formatDate(file.createdAt),
-    openedDate: formatDate(file.createdAt),
     size: formatBytes(file.sizeBytes),
     access: file.connectedAccount?.email ?? 'Only You',
     kind: mimeToKind(file.mimeType),
