@@ -16,6 +16,13 @@ export const uploadRouter = Router()
 type UploadMeta = { fieldName: string; fileName: string; mimeType: string; sizeBytes: bigint; folderId?: string }
 type RoutingMode = 'most_available' | 'round_robin' | 'priority'
 
+// A broken storage account (revoked OAuth token, missing Drive scope) fails
+// quota sync forever, so its lastSyncedAt never refreshes and it is treated as
+// "stale" on every request. Retry such accounts at most once per cooldown
+// window instead of hammering the provider API on every upload.
+const quotaSyncCooldownMs = 5 * 60_000
+const lastQuotaSyncAttemptAt = new Map<string, number>()
+
 function logUpload(message: string, metadata?: Record<string, unknown>) {
   console.info('[upload]', message, metadata ?? '')
 }
@@ -49,8 +56,12 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     include: { storageAccount: true },
   })
 
-  const stale = accounts.filter((account) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000)
-  await Promise.allSettled(stale.map(async (account) => {
+  const now = Date.now()
+  const stale = accounts.filter((account) => !account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < now - 5 * 60_000)
+  const dueForSync = stale.filter((account) => (lastQuotaSyncAttemptAt.get(account.id) ?? 0) <= now - quotaSyncCooldownMs)
+  await Promise.allSettled(dueForSync.map(async (account) => {
+    // Record the attempt *before* syncing so concurrent requests share the cooldown.
+    lastQuotaSyncAttemptAt.set(account.id, Date.now())
     try {
       if (account.provider === 's3') {
         await syncS3Quota(account.id)
@@ -66,10 +77,14 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     }
   }))
 
-  const fresh = await prisma.connectedAccount.findMany({
-    where: { userId, provider: { in: ['google_drive', 's3'] }, status: 'connected' },
-    include: { storageAccount: true },
-  })
+  // Only re-fetch when something was actually synced; otherwise the first query
+  // already holds the current storageAccount data.
+  const fresh = dueForSync.length > 0
+    ? await prisma.connectedAccount.findMany({
+      where: { userId, provider: { in: ['google_drive', 's3'] }, status: 'connected' },
+      include: { storageAccount: true },
+    })
+    : accounts
 
   const eligible = fresh
     .map((account) => ({ account, availableBytes: account.storageAccount?.availableBytes === null || account.storageAccount?.availableBytes === undefined ? null : account.storageAccount.availableBytes - (reservedBytesByAccount.get(account.id) ?? 0n) }))

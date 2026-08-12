@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import type { Request } from 'express'
 import { verifyAccessToken } from '../utils/jwt.js'
 import type { AuthRequest } from './auth.middleware.js'
@@ -7,6 +7,10 @@ import type { AuthRequest } from './auth.middleware.js'
  * Rate-limit key: prefer the authenticated user id so users behind a shared
  * NAT/IP are not collectively locked out. Falls back to the proxied IP for
  * anonymous traffic (login/register, public routes).
+ *
+ * The IP fallback must go through ipKeyGenerator(): express-rate-limit v8
+ * throws ERR_ERL_KEY_GEN_IPV6 at startup when a custom keyGenerator uses
+ * req.ip directly, and IPv6 clients could otherwise bypass limits.
  */
 function keyGenerator(req: Request): string {
   // When auth middleware has already populated req.user, use it directly to
@@ -22,7 +26,7 @@ function keyGenerator(req: Request): string {
       // Invalid/expired token → treat as anonymous
     }
   }
-  return `ip:${req.ip ?? 'unknown'}`
+  return `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`
 }
 
 /**

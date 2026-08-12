@@ -174,7 +174,17 @@ function escapeDriveQueryValue(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
+// The app folder is looked up once per upload (selectAccount + files.create).
+// Cache the id per account with a short TTL so uploads do not pay a Drive API
+// list call every time. A 10-minute stale parent is an acceptable trade-off:
+// the rare upload to a deleted folder fails fast and clears the cache.
+const appFolderCache = new Map<string, { folderId: string; expiresAt: number }>()
+const appFolderCacheTtlMs = 10 * 60_000
+
 export async function ensureGoogleAppFolder(account: ConnectedAccount) {
+  const cached = appFolderCache.get(account.id)
+  if (cached && cached.expiresAt > Date.now()) return cached.folderId
+
   const auth = await getAuthedGoogleClient(account)
   const drive = google.drive({ version: 'v3', auth })
   const queryName = escapeDriveQueryValue(appFolderName)
@@ -190,6 +200,7 @@ export async function ensureGoogleAppFolder(account: ConnectedAccount) {
   })).data.id
 
   if (!folderId) throw new Error('Failed to create Google Drive app folder.')
+  appFolderCache.set(account.id, { folderId, expiresAt: Date.now() + appFolderCacheTtlMs })
   return folderId
 }
 
