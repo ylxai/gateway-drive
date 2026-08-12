@@ -3,8 +3,8 @@
 **Tanggal**: 2026-08-12
 **Cakupan**: Full-stack audit (backend + frontend + infra)
 **Status Build**: Backend ✅ (`tsc`) | Frontend ✅ (`tsc && vite build`)
-**Status Lint**: Backend ✅ (0 errors, warnings non-null assertion pre-existing) | Frontend ❌ (no ESLint config)
-**Tindak lanjut**: PR #22 (branch `fix/audit`) — **SUDAH DI-MERGE** ke `main` (`ffeb1d6`, 17 commits, +874/−498) · PR #23 (branch `fix/audit-round2`) — semua sisa item §8 selesai, menunggu review/merge
+**Status Lint**: Backend ✅ (0 errors, warnings non-null assertion pre-existing) | Frontend ✅ (0 errors, 11 warnings)
+**Tindak lanjut**: PR #22 (branch `fix/audit`) — **SUDAH DI-MERGE** ke `main` (`ffeb1d6`, 17 commits, +874/−498) · PR #23 (branch `fix/audit-round2`) — **SUDAH DI-MERGE** ke `main` (`9264b25`); semua sisa item §8 selesai + 5 fix hasil review OCR (commit `1a2aaba`)
 
 ---
 
@@ -28,10 +28,10 @@
 | Severity | Jumlah | Status setelah PR #22 |
 |---|---|---|
 | 🔴 KRITIS (P0) | 4 | ✅ **4/4 FIXED** |
-| 🟧 TINGGI (P1) | 6 | ✅ **5/6 FIXED** (1 sebagian: ESLint frontend belum ada) |
-| 🟨 SEDANG (P2) | 13 | ✅ **10/13 FIXED** · ⚠️ 2 belum dikerjakan · 1 sebagian |
+| 🟧 TINGGI (P1) | 6 | ✅ **6/6 FIXED** |
+| 🟨 SEDANG (P2) | 13 | ✅ **13/13 FIXED** |
 
-**Sisa pekerjaan**: ✅ **SEMUA selesai di PR #23** (`fix/audit-round2`) — ESLint frontend, rate-limit `trust proxy`, enforcement invites, index kolom `name`, refactor monolith, test suite + CI, dedup quota sync.
+**Sisa pekerjaan**: ✅ **SEMUA SELESAI di PR #23** (`fix/audit-round2`, merged `9264b25`) — ESLint frontend, rate-limit `trust proxy`, enforcement invites, index kolom `name`, refactor monolith, test suite + CI, dedup quota sync.
 
 ---
 
@@ -119,10 +119,10 @@ File ini `declare module "@prisma/client"` dengan `ModelDelegate<any>` → **sel
 - **Frontend**: **tidak ada** `eslint.config.*`, tidak ada script lint di `package.json` → `npx eslint` gagal dengan \"couldn't find config\".
 - **Tidak ada test** sama sekali di kedua project.
 
-**Status**: ⚠️ **SEBAGIAN**
+**Status**: ✅ **FIXED** (PR #23)
 - ✅ Backend: semua `any` dibersihkan → **0 errors** (warnings non-null assertion pre-existing; diizinkan via `--max-warnings`).
-- ❌ **Frontend: masih belum ada ESLint config / script lint.**
-- ❌ **Test: masih tidak ada** di kedua project (lihat §5 rekomendasi).
+- ✅ **Frontend**: `eslint.config.mjs` (flat config + react-hooks + TS) + script `lint`/`lint:fix` → **0 errors** (11 warnings).
+- ✅ **Test**: 14 unit test (`crypto` + `password`) via `node:test` + CI GitHub Actions.
 
 ---
 
@@ -190,15 +190,15 @@ Ketiganya render `files`/`archivedFiles` dari `@/data/drive-data` (data statis) 
 |---|---|---|---|
 | P2-1 | `FileShare.token` disimpan **plaintext + hash** (redundant; `findSharedFile` OR-search keduanya). INCONSIST-2 dari analisis lama **masih ada** | `backend/prisma/schema.prisma` (FileShare), `backend/src/modules/public/public.routes.ts:13` | ✅ **FIXED** — lookup via `tokenHash`, token disimpan terenkripsi; heuristik `:` aman karena `randomToken()` base64url. |
 | P2-2 | Logika callback Google login **diduplikasi** di 2 router (`auth.routes.ts` & `connected-account.routes.ts`) dengan flow login copy-paste — drift risk | kedua file, ~60 baris duplikat | ✅ **FIXED** — `completeGoogleLoginFlow()` satu helper; upsert idempoten; `oauthState.usedAt` dicek sebelum helper (race double-callback aman). Kedua callback kini redirect error flow-aware (`google-auth` vs `google-connected`) — CR #3764493052. |
-| P2-3 | Rate limit per-IP: global 100/15m + auth 10/15m — user di belakang NAT bisa ke-lock; backend ter-expose langsung di port 4001 (bypass nginx) dan `trust proxy: true` memungkinkan spoof XFF | `rate-limit.middleware.ts`, `app.ts:17`, `docker-compose.yml:44` | ❌ **BELUM DIKERJAKAN** — masih `app.set('trust proxy', true)` + limiter per-IP. Deploy tose.sh tidak pakai nginx seperti compose; perlu review konfigurasi proxy host. |
-| P2-4 | Fitur invites **tidak ada enforcement** (murni dekoratif — tidak mengubah akses file) + auto-mark `accepted` tanpa persetujuan invitee | `invite.routes.ts:57-60` | ❌ **BELUM DIKERJAKAN** — `GET /invites` masih auto-mark `accepted` bila invitee sudah punya akun; tidak ada model akses (mis. `FileMember`) yang menegakkan permission dari invite. |
+| P2-3 | Rate limit per-IP: global 100/15m + auth 10/15m — user di belakang NAT bisa ke-lock; backend ter-expose langsung di port 4001 (bypass nginx) dan `trust proxy: true` memungkinkan spoof XFF | `rate-limit.middleware.ts`, `app.ts:27` | ✅ **FIXED** (PR #23) — `trust proxy: 1` (hanya percaya 1 hop, anti spoof XFF) + keyGenerator user-aware (key by user ID bila autentikasi, fallback IP → anti NAT lockout). ⚠️ Asumsi 1 hop proxy di belakang tose.sh — verifikasi saat deploy. |
+| P2-4 | Fitur invites **tidak ada enforcement** (murni dekoratif — tidak mengubah akses file) + auto-mark `accepted` tanpa persetujuan invitee | `invite-access.ts`, `invite.routes.ts`, `file.routes.ts`, `folder.routes.ts` | ✅ **FIXED** (PR #23) — helper `resolveFileAccess`/`resolveFolderAccess` (grant eksplisit status `accepted`, role tertinggi menang, file non-active tak bisa diakses invitee), hapus auto-accept, endpoint accept/decline, enforcement di file/folder (edit=editor · move/delete/share-revoke=owner), listing `?shared=1` konsisten dengan folder chain (recursive CTE anti N+1). |
 | P2-5 | `createAuditLog` mengirim `JSON.stringify(metadata)` ke kolom `Json` → **double-encoded string**, bukan objek | `backend/src/utils/audit.ts:10` | ✅ **FIXED** — kirim `InputJsonValue` langsung; reader frontend (`ActivityLogPage.renderMetadata`) sudah dual-format (string & object), tidak perlu backfill. |
-| P2-6 | Search `contains` + `insensitive` di kolom `name` tanpa index → full scan per user pada library besar | `file.routes.ts:87` (butuh index `@@index([userId, status, name])`) | ❌ **BELUM DIKERJAKAN** — schema File punya `@@index([userId, status, folderId, createdAt])` tapi **tidak ada** index `name`. |
-| P2-7 | `syncGoogleQuota` dipanggil 2x redundant (batch upload + di dalam `syncGoogleAppFolderFiles`) | `upload.routes.ts:257`, `google.service.ts:196` | ⚠️ **SEBAGIAN** — quota sync kini per-provider (`s3` vs `google`); beberapa pemanggilan masih ada di jalur batch (upload.routes:25/58/305, google.service:89/287) — perlu audit pemanggilan ganda dalam satu request. |
+| P2-6 | Search `contains` + `insensitive` di kolom `name` tanpa index → full scan per user pada library besar | `file.routes.ts:87` | ✅ **FIXED** (PR #23) — `@@index([userId, status, name])` + migration `20260812082901_add_file_name_index` (sudah di-apply ke Neon). |
+| P2-7 | `syncGoogleQuota` dipanggil 2x redundant (batch upload + di dalam `syncGoogleAppFolderFiles`) | `upload.routes.ts:257`, `google.service.ts:196` | ✅ **FIXED** (PR #23) — di akhir batch, skip sync akun yang baru di-sync pre-flight (<60s, `upload.routes.ts:310`); tidak ada pemanggilan ganda dalam satu request. |
 | P2-8 | `GET /public/files/:token` error → **500** bukan 404 (\"Shared file not found\" di-throw → errorMiddleware) | `public.routes.ts:17` | ✅ **FIXED** — via error middleware P2025 → 404. |
 | P2-9 | Tidak ada `helmet` / security headers (X-Content-Type-Options, HSTS, CSP, dll) | `backend/src/app.ts` | ✅ **FIXED** — helmet terpasang; dikonfigurasi agar preview cross-origin (`<img>/<video>/<iframe>`) tidak diblokir CORP/XFO. |
 | P2-10 | AGENTS.md **stale**: menyebut MySQL 8+ & `mysql:8.4`, padahal schema/compose/README sudah PostgreSQL 16; `.env.docker.example` dirujuk tapi tidak ada di repo | `AGENTS.md` | ✅ **FIXED** — MySQL → PostgreSQL + service `db`; referensi `.env.docker.example` dihapus; README & AGENTS mencatat deploy tose.sh + `.env.tose`. |
-| P2-11 | `AllFilesPage.tsx` (51KB) & `DriveLayout.tsx` (29KB) — monolith; `counter.ts` dead code (sisa template Vite) | frontend | ⚠️ **SEBAGIAN** — `counter.ts` dihapus ✅ (sekaligus menutup temuan XSS `innerHTML` Sourcery); monolith page **belum di-refactor**. |
+| P2-11 | `AllFilesPage.tsx` (51KB) & `DriveLayout.tsx` (29KB) — monolith; `counter.ts` dead code (sisa template Vite) | frontend | ✅ **FIXED** (PR #23) — `counter.ts` dihapus; refactor: AllFilesPage 881→822, DriveLayout 568→400; ekstrak `drive-utils.ts`, `FolderAppearanceFields.tsx`, `UploadModal.tsx`, `Sidebar.tsx`. |
 | P2-12 | `roundRobinCursor` di-increment walau `ordered.length === 0` (modulo 0 → NaN) | `upload.routes.ts:75` | ✅ **FIXED** — mod-0 aman. |
 | P2-13 | Zip download: `archive.append(stream)` tanpa await → korupsi parsial jika stream error (BUG-3 lama belum tuntas); juga `batchFileSchema` tidak validasi kepemilikan file per user sebelum stream | `file.routes.ts:447-486` | ✅ **FIXED** — error handler sebelum append + guard `finalized`; `AbortSignal.timeout` header-phase (lihat P0-4). |
 
@@ -241,17 +241,25 @@ Berikut item dari rule groups default OCR yang relevan & statusnya di codebase i
 
 ## 8. Rekomendasi Prioritas (SISA PEKERJAAN)
 
-**Belum dikerjakan (segera):**
-1. **ESLint frontend** — tambah `eslint.config.*` + script lint (menutup P1-2).
-2. **Index kolom `name`** — `@@index([userId, status, name])` + migration untuk search library besar (P2-6).
-3. **Rate limit & trust proxy** — review `trust proxy` untuk deploy tose.sh (spoof XFF), pertimbangkan key by user ID (P2-3).
+**✅ SEMUA SELESAI di PR #23** (`fix/audit-round2`, merged `9264b25`):
 
-**Berikutnya (P2):**
-4. **Invites enforcement** — model akses nyata (mis. `FileMember`/`FolderMember`) yang mengubah permission saat invite di-accept; hapus auto-mark `accepted` (P2-4).
-5. **Refactor monolith** — pecah `AllFilesPage.tsx` (51KB) & `DriveLayout.tsx` (29KB) (P2-11).
-6. **Test suite + CI** — minimal smoke test API (auth → upload → share → public access) di backend; unit test helper (crypto, quota, audit) (P1-2).
-7. **Audit pemanggilan `syncGoogleQuota`** — pastikan tidak ganda dalam satu request (P2-7).
+1. **ESLint frontend** ✅ — `eslint.config.mjs` (flat config + react-hooks + TS) + script `lint`/`lint:fix`; 0 errors setelah fix `gravatar.ts` & `SettingsPage.tsx` (menutup P1-2).
+2. **Index kolom `name`** ✅ — `@@index([userId, status, name])` + migration `20260812082901` di-apply ke Neon (P2-6).
+3. **Rate limit & trust proxy** ✅ — `trust proxy: 1` (anti spoof XFF) + keyGenerator user-aware (anti NAT lockout) (P2-3).
+4. **Invites enforcement** ✅ — `invite-access.ts` (resolveFileAccess/resolveFolderAccess), hapus auto-accept, endpoint accept/decline, enforcement di file/folder, listing `?shared=1` (P2-4).
+5. **Refactor monolith** ✅ — AllFilesPage 881→822, DriveLayout 568→400; ekstrak `drive-utils.ts`, `FolderAppearanceFields`, `UploadModal`, `Sidebar` (P2-11).
+6. **Test suite + CI** ✅ — 14 unit test (crypto + password) + `.github/workflows/ci.yml` (build/lint/test kedua project, `permissions` + `concurrency`) (P1-2).
+7. **Audit pemanggilan `syncGoogleQuota`** ✅ — guard skip akun yang baru di-sync (<60s) di akhir batch upload (P2-7).
+
+**Bonus dari proses:**
+- Test menemukan bug nyata `encryptText('')` tak bisa di-decrypt (GCM empty ciphertext) → fixed di `decryptText`.
+- Review OCR (delegate) → 5 isu difix di `1a2aaba`: akses file trash via invite, role gabungan file+folder, share revoke owner-only, CI hardening, error handling accept/decline.
+- Review Sourcery → difix di `cf9e829`: recursive CTE anti N+1, keyGenerator short-circuit, JSDoc `requireFileAccess`.
+
+**Non-blocker tersisa:**
+- ⚠️ Verifikasi jumlah hop proxy di belakang tose.sh saat deploy (asumsi `trust proxy: 1`).
+- 🔲 Backend belum punya flag `starred` — StarredPage render empty state jujur sampai fitur ada.
 
 ---
 
-*Dibuat via audit otomatis: graphify + open-code-review (delegate) + bot review GitHub (CodeRabbit/Sourcery, diverifikasi manual) + build/lint verification + manual code review. Di-update setelah PR #22 merged (`ffeb1d6`).*
+*Dibuat via audit otomatis: graphify + open-code-review (delegate) + bot review GitHub (CodeRabbit/Sourcery, diverifikasi manual) + build/lint verification + manual code review. Di-update setelah PR #22 merged (`ffeb1d6`) dan PR #23 merged (`9264b25`).*
