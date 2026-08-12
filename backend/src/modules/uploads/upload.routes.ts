@@ -121,6 +121,9 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
 
 export async function handleUpload(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // Phase timing: each later log reports cumulative ms since the request
+    // arrived, so the diff between consecutive lines is the phase duration.
+    const requestStartedAt = Date.now()
     logUpload('request started', { userId: req.user!.id, contentLength: req.headers['content-length'] })
     const contentType = req.headers['content-type']
     if (!contentType?.includes('multipart/form-data')) return res.status(400).json({ code: 'UPLOAD_INVALID_CONTENT_TYPE', message: 'multipart/form-data required.' })
@@ -197,7 +200,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         reservedBytesByAccount.set(account.id, (reservedBytesByAccount.get(account.id) ?? 0n) + meta.sizeBytes)
 
         const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, folderId, fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' } })
-        logUpload('file upload started', { sessionId: session.id, accountId: account.id, fileName, sizeBytes: meta.sizeBytes.toString() })
+        logUpload('file upload started', { sessionId: session.id, accountId: account.id, fileName, sizeBytes: meta.sizeBytes.toString(), ms: Date.now() - requestStartedAt })
 
         // Track streamed bytes using a PassThrough with counter — no memory buffering
         let streamedBytes = 0n
@@ -244,7 +247,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           providerFileId = uploaded.data.id ?? ''
           uploadedName = uploaded.data.name ?? fileName
           uploadedMimeType = uploaded.data.mimeType ?? meta.mimeType
-          logUpload('google upload completed', { sessionId: session.id, accountId: account.id, fileName })
+          logUpload('google upload completed', { sessionId: session.id, accountId: account.id, fileName, ms: Date.now() - requestStartedAt })
         }
 
         if (streamedBytes !== meta.sizeBytes) {
@@ -271,7 +274,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
 
         const file = account.provider === 's3' ? null : await prisma.file.create({ data: { userId: req.user!.id, connectedAccountId: account.id, folderId, provider: 'google_drive', providerFileId, name: uploadedName, mimeType: uploadedMimeType, sizeBytes: meta.sizeBytes } })
         if (file) {
-          logUpload('database file created', { sessionId: session.id, fileId: file.id, accountId: account.id })
+          logUpload('database file created', { sessionId: session.id, fileId: file.id, accountId: account.id, ms: Date.now() - requestStartedAt })
           completed.push({ ...file, sizeBytes: file.sizeBytes.toString() })
         }
         await prisma.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
@@ -313,7 +316,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
       Promise.all(pendingUploads).then(async () => {
         if (responded) return
         responded = true
-        logUpload('response sent', { completed: completed.length, failed: failed.length })
+        logUpload('response sent', { completed: completed.length, failed: failed.length, ms: Date.now() - requestStartedAt })
 
         // Sync quotas once per account after batch completes (use the provider-appropriate sync).
         // selectAccount already synced any stale account during pre-flight, so
