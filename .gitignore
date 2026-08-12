@@ -7,6 +7,10 @@ dist/
 backend/.env
 backend/.env.local
 backend/.env.*.local
+.env
+.env.local
+.env.tose
+!.env.docker.example
 
 # Databases
 *.db
