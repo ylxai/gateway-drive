@@ -4,7 +4,7 @@
 **Cakupan**: Full-stack audit (backend + frontend + infra)
 **Status Build**: Backend ✅ (`tsc`) | Frontend ✅ (`tsc && vite build`)
 **Status Lint**: Backend ✅ (0 errors, warnings non-null assertion pre-existing) | Frontend ❌ (no ESLint config)
-**Tindak lanjut**: PR #22 (branch `fix/audit`) — **SUDAH DI-MERGE** ke `main` (`ffeb1d6`, 17 commits, +874/−498)
+**Tindak lanjut**: PR #22 (branch `fix/audit`) — **SUDAH DI-MERGE** ke `main` (`ffeb1d6`, 17 commits, +874/−498) · PR #23 (branch `fix/audit-round2`) — semua sisa item §8 selesai, menunggu review/merge
 
 ---
 
@@ -31,7 +31,7 @@
 | 🟧 TINGGI (P1) | 6 | ✅ **5/6 FIXED** (1 sebagian: ESLint frontend belum ada) |
 | 🟨 SEDANG (P2) | 13 | ✅ **10/13 FIXED** · ⚠️ 2 belum dikerjakan · 1 sebagian |
 
-**Sisa pekerjaan** (detail di §5): ESLint frontend, rate-limit `trust proxy`, enforcement invites, index kolom `name`, refactor monolith, test suite.
+**Sisa pekerjaan**: ✅ **SEMUA selesai di PR #23** (`fix/audit-round2`) — ESLint frontend, rate-limit `trust proxy`, enforcement invites, index kolom `name`, refactor monolith, test suite + CI, dedup quota sync.
 
 ---
 

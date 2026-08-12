@@ -5,6 +5,7 @@ import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
 import { getAuthedGoogleClient, syncGoogleQuota, ensureGoogleAppFolder } from '../google/google.service.js'
 import { createAuditLog } from '../../utils/audit.js'
+import { expandFolderDescendants } from '../invites/invite-access.js'
 
 export const folderRouter = Router()
 folderRouter.use(requireAuth)
@@ -26,10 +27,13 @@ function serializeFolder(folder: { id: string; name: string; color: string; icon
 }
 
 async function ensureProviderFolderIds(
-  folders: Array<{ id: string; name: string; parentId: string | null; providerFolderId: string | null }>,
+  folders: Array<{ id: string; name: string; parentId: string | null; providerFolderId: string | null; userId: string }>,
   userId: string
 ) {
-  const foldersWithoutId = folders.filter((f) => !f.providerFolderId)
+  // Only self-heal folders the requester owns. The shared=1 listing may include
+  // folders belonging to other users — creating/attaching a Drive folder under
+  // the requester's account would corrupt the owner's folder record.
+  const foldersWithoutId = folders.filter((f) => !f.providerFolderId && f.userId === userId)
   if (foldersWithoutId.length === 0) return
 
   const connectedAccount = await prisma.connectedAccount.findFirst({
@@ -82,10 +86,21 @@ async function ensureProviderFolderIds(
 
 folderRouter.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const query = z.object({ parentId: z.string().nullable().optional(), all: z.string().optional() }).parse(req.query)
+    const query = z.object({ parentId: z.string().nullable().optional(), all: z.string().optional(), shared: z.enum(['1']).optional() }).parse(req.query)
+    const ownWhere = { userId: req.user!.id, deletedAt: null, ...(query.all === '1' ? {} : { parentId: query.parentId ?? null }) }
+    let where: Record<string, unknown> = ownWhere
+    if (query.shared === '1') {
+      // Folders shared with me: own folders OR folders targeted by accepted
+      // invites (expanded to descendants so subfolders of an invited folder
+      // are listed, matching resolveFolderAccess semantics).
+      const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+      const folderInvites = await prisma.workspaceInvite.findMany({ where: { inviteeEmail: me.email, targetType: 'folder', status: 'accepted', revokedAt: null }, select: { targetId: true } })
+      const invitedIds = folderInvites.length > 0 ? await expandFolderDescendants(folderInvites.map((invite) => invite.targetId)) : []
+      where = { deletedAt: null, ...(query.all === '1' ? {} : { parentId: query.parentId ?? null }), OR: [{ userId: req.user!.id }, ...(invitedIds.length > 0 ? [{ id: { in: invitedIds } }] : [])] }
+    }
     const folders = await prisma.folder.findMany({
-      where: { userId: req.user!.id, deletedAt: null, ...(query.all === '1' ? {} : { parentId: query.parentId ?? null }) },
-      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, providerFolderId: true, createdAt: true, updatedAt: true },
+      where,
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, providerFolderId: true, createdAt: true, updatedAt: true, userId: true },
       orderBy: { updatedAt: 'desc' },
     })
     await ensureProviderFolderIds(folders, req.user!.id)
@@ -100,7 +115,7 @@ folderRouter.get('/recent', async (req: AuthRequest, res, next) => {
     const limit = Math.min(Number(req.query.limit ?? 4), 4)
     const folders = await prisma.folder.findMany({
       where: { userId: req.user!.id, deletedAt: null },
-      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, providerFolderId: true, createdAt: true, updatedAt: true },
+      select: { id: true, name: true, color: true, iconUrl: true, parentId: true, providerFolderId: true, createdAt: true, updatedAt: true, userId: true },
       orderBy: { updatedAt: 'desc' },
       take: limit,
     })
@@ -176,9 +191,13 @@ folderRouter.patch('/:id', async (req: AuthRequest, res, next) => {
     if (body.parentId === folderId) return res.status(400).json({ code: 'FOLDER_INVALID_PARENT', message: 'Folder cannot be moved into itself.' })
 
     const folderRecord = await prisma.folder.findFirstOrThrow({
-      where: { id: folderId, userId: req.user!.id, deletedAt: null },
+      where: { id: folderId, deletedAt: null },
       include: { connectedAccount: true }
     })
+    // Only the owner may mutate a folder; invitees only get read access.
+    if (folderRecord.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FOLDER_FORBIDDEN', message: 'Only the owner can modify this folder.' })
+    }
 
     if (body.parentId) {
       await prisma.folder.findFirstOrThrow({ where: { id: body.parentId, userId: req.user!.id, deletedAt: null } })
@@ -258,7 +277,11 @@ folderRouter.patch('/:id', async (req: AuthRequest, res, next) => {
 folderRouter.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
     const rootId = String(req.params.id)
-    const root = await prisma.folder.findFirstOrThrow({ where: { id: rootId, userId: req.user!.id, deletedAt: null } })
+    const root = await prisma.folder.findFirstOrThrow({ where: { id: rootId, deletedAt: null } })
+    // Only the owner may delete a folder.
+    if (root.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FOLDER_FORBIDDEN', message: 'Only the owner can delete this folder.' })
+    }
     const folders = await prisma.folder.findMany({ where: { userId: req.user!.id, deletedAt: null }, select: { id: true, parentId: true } })
     const folderIds = new Set<string>([root.id])
     let changed = true

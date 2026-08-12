@@ -6,7 +6,7 @@ export async function getGravatarUrl(email: string | undefined, size: number) {
 
   // Hash the email for Gravatar lookup + as DiceBear seed
   const seed = normalized ?? 'default-user'
-  let hash = ''
+  let hash: string
 
   if (typeof crypto !== 'undefined' && crypto.subtle) {
     try {

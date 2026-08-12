@@ -21,7 +21,10 @@ import { generalLimiter, authLimiter, uploadLimiter } from './middleware/rate-li
 import { csrfProtection } from './middleware/csrf.middleware.js'
 
 export const app = express()
-app.set('trust proxy', true)
+// Trust exactly one reverse-proxy hop (nginx / tose.sh). Using `true` would
+// trust the client-supplied X-Forwarded-For header verbatim, letting anyone
+// spoof an IP and bypass IP-based rate limits.
+app.set('trust proxy', 1)
 
 app.use(helmet({
   // The frontend lives on a different origin and embeds media/previews from this
