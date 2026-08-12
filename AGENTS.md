@@ -8,8 +8,7 @@ Gateway Drive is a Google Drive storage gateway. It lets users register/login wi
 
 - `backend/`: Express API, TypeScript, Prisma schema/migrations, PostgreSQL access, auth, Google OAuth/Drive integration.
 - `frontend/`: Vite React app, protected dashboard UI, file/folder management, sharing, uploads, quota/settings pages.
-- `docker-compose.yml`: PostgreSQL (`db` service), backend, and nginx-served frontend services.
-- `.env.docker.example`: Docker environment template.
+- `docker-compose.yml`: PostgreSQL (`db` service), backend, and nginx-served frontend services. Deployment in this repo uses tose.sh with a local `.env.tose` (git-ignored).
 - `README.md`: local setup, Google Cloud setup, Docker notes, deployment notes.
 
 ## Requirements
@@ -249,7 +248,7 @@ Docker notes:
 - Frontend build is served by nginx on host port `5174`.
 - Frontend build arg `VITE_API_URL` is embedded at build time.
 - Rebuild frontend when `VITE_API_URL` changes.
-- `JWT_ACCESS_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` have NO defaults — `docker compose` fails fast if unset. See `.env.docker.example`.
+- `JWT_ACCESS_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` have NO defaults — `docker compose` fails fast if unset. Secrets are supplied via the local `.env` (or `.env.tose` for tose.sh deployments).
 
 ## Verification
 
