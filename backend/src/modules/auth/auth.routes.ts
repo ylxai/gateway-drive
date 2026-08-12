@@ -1,6 +1,7 @@
 import { Router, type Response, type Request } from 'express'
 import { google } from 'googleapis'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
 import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
@@ -8,7 +9,7 @@ import { isAdmin } from '../../middleware/admin.middleware.js'
 import { hashPassword, verifyPassword } from '../../utils/password.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { signAccessToken } from '../../utils/jwt.js'
-import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
+import { completeGoogleLoginFlow, createOAuthClient } from '../google/google.service.js'
 
 export const authRouter = Router()
 
@@ -123,55 +124,15 @@ authRouter.get('/google/callback', async (req, res) => {
 
     const oauth2 = google.oauth2({ version: 'v2', auth: client })
     const profile = await oauth2.userinfo.get()
-    const providerAccountId = profile.data.id
-    const email = profile.data.email
-    if (!providerAccountId || !email) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
 
-    const name = profile.data.name || email.split('@')[0] || 'Google User'
-    const user = await prisma.user.upsert({
-      where: { email },
-      create: { email, name, passwordHash: await hashPassword(randomToken(32)) },
-      update: { name },
+    const result = await completeGoogleLoginFlow({
+      oauthStateId: oauthState.id,
+      providerConfigId: oauthState.providerConfigId,
+      providerConfigScopes: oauthState.providerConfig!.scopes as string[],
+      tokens,
+      profile: profile.data,
     })
-    const existingAccount = await prisma.connectedAccount.findUnique({ where: { userId_provider_providerAccountId: { userId: user.id, provider: 'google_drive', providerAccountId } } })
-    const refreshTokenEncrypted = tokens.refresh_token ? encryptText(tokens.refresh_token) : existingAccount?.refreshTokenEncrypted
-    if (!refreshTokenEncrypted) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
-
-    const account = await prisma.connectedAccount.upsert({
-      where: { userId_provider_providerAccountId: { userId: user.id, provider: 'google_drive', providerAccountId } },
-      create: {
-        userId: user.id,
-        providerConfigId: oauthState.providerConfigId,
-        provider: 'google_drive',
-        providerAccountId,
-        email,
-        displayName: profile.data.name,
-        avatarUrl: profile.data.picture,
-        accessTokenEncrypted: encryptText(tokens.access_token),
-        refreshTokenEncrypted,
-        tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig!.scopes as string[],
-        status: 'connected',
-      },
-      update: {
-        providerConfigId: oauthState.providerConfigId,
-        email,
-        displayName: profile.data.name,
-        avatarUrl: profile.data.picture,
-        accessTokenEncrypted: encryptText(tokens.access_token),
-        refreshTokenEncrypted,
-        tokenExpiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-        scopes: oauthState.providerConfig!.scopes as string[],
-        status: 'connected',
-      },
-    })
-
-    await prisma.oauthState.update({ where: { id: oauthState.id }, data: { usedAt: new Date(), userId: user.id } })
-    await syncGoogleQuota(account.id).catch(() => undefined)
-
-    const handoffToken = randomToken()
-    await prisma.authHandoff.create({ data: { userId: user.id, tokenHash: hashToken(handoffToken), expiresAt: new Date(Date.now() + 5 * 60_000) } })
-    return res.redirect(`${env.FRONTEND_URL}/google-auth?token=${handoffToken}`)
+    return res.redirect(result.redirectUrl)
   } catch (error) {
     console.error('Google Auth callback failed:', error)
     return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
@@ -200,7 +161,7 @@ authRouter.post('/refresh', async (req, res, next) => {
     const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: tokenHash, revokedAt: null, expiresAt: { gt: new Date() } } })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
 
-    const tokens = await prisma.$transaction(async (tx: any) => {
+    const tokens = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.userSession.update({
         where: { id: session.id, refreshTokenHash: tokenHash, revokedAt: null },
         data: { revokedAt: new Date() },
