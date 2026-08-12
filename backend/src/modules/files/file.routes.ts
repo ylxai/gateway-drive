@@ -423,6 +423,12 @@ fileRouter.delete('/:id/share', async (req: AuthRequest, res, next) => {
     const fileId = String(req.params.id)
     const role = await requireFileAccess(req, res, fileId, 'editor')
     if (!role) return
+    // Only the owner may remove a share link — it was created by the owner
+    // (see POST /:id/share) and editors must not be able to disable it.
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, status: 'active' } })
+    if (file.userId !== req.user!.id) {
+      return res.status(403).json({ code: 'FILE_FORBIDDEN', message: 'Only the owner can remove the share link.' })
+    }
     await prisma.fileShare.updateMany({ where: { fileId, userId: req.user!.id, enabled: true }, data: { enabled: false } })
     return res.json({ status: 'ok' })
   } catch (error) {

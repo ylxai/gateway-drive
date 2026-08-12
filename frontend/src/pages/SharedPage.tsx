@@ -50,8 +50,13 @@ export function SharedPage() {
   }
 
   async function respondInvite(id: string, action: 'accept' | 'decline') {
-    await apiFetch(`/invites/${id}/${action}`, { method: 'POST' })
-    await loadInvites()
+    try {
+      await apiFetch(`/invites/${id}/${action}`, { method: 'POST' })
+      setMessage('')
+      await loadInvites()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `Failed to ${action} invite`)
+    }
   }
 
   return (

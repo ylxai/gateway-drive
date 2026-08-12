@@ -5,10 +5,20 @@ on:
     branches: [main, 'fix/**']
   pull_request:
 
+# Only what the jobs need: checkout the repo and read workflow metadata.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch to avoid wasted runner time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (build + lint + test)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,6 +48,7 @@ jobs:
   frontend:
     name: Frontend (build + lint)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

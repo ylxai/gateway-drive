@@ -14,38 +14,32 @@ export type AccessRole = 'viewer' | 'editor' | 'owner'
 export async function resolveFileAccess(userId: string, fileId: string): Promise<AccessRole | null> {
   const file = await prisma.file.findFirst({
     where: { id: fileId },
-    select: { userId: true, folderId: true },
+    select: { userId: true, folderId: true, status: true },
   })
   if (!file) return null
   if (file.userId === userId) return 'owner'
+  // Non-owners only get access to active files — a trashed/deleted file must
+  // not stay reachable through an accepted invite.
+  if (file.status !== 'active') return null
 
   const me = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
   if (!me?.email) return null
 
   const folderChain = await resolveFolderChain(file.folderId)
-  const fileInvites = await prisma.workspaceInvite.findMany({
-    where: {
-      inviteeEmail: me.email,
-      targetType: 'file',
-      targetId: fileId,
-      status: 'accepted',
-      revokedAt: null,
-    },
-    select: { role: true },
-  })
-  if (fileInvites.length > 0) return maxRole(fileInvites.map((invite) => invite.role))
-
-  const folderInvites = await prisma.workspaceInvite.findMany({
-    where: {
-      inviteeEmail: me.email,
-      targetType: 'folder',
-      targetId: { in: folderChain },
-      status: 'accepted',
-      revokedAt: null,
-    },
-    select: { role: true },
-  })
-  if (folderInvites.length > 0) return maxRole(folderInvites.map((invite) => invite.role))
+  const [fileInvites, folderInvites] = await Promise.all([
+    prisma.workspaceInvite.findMany({
+      where: { inviteeEmail: me.email, targetType: 'file', targetId: fileId, status: 'accepted', revokedAt: null },
+      select: { role: true },
+    }),
+    prisma.workspaceInvite.findMany({
+      where: { inviteeEmail: me.email, targetType: 'folder', targetId: { in: folderChain }, status: 'accepted', revokedAt: null },
+      select: { role: true },
+    }),
+  ])
+  // Highest privilege wins across BOTH file- and folder-level invites, so a
+  // folder-level 'editor' grant is not downgraded by a file-level 'viewer' one.
+  const roles = [...fileInvites.map((invite) => invite.role), ...folderInvites.map((invite) => invite.role)]
+  if (roles.length > 0) return maxRole(roles)
   return null
 }
 
