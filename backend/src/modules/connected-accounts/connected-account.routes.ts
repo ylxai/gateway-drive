@@ -173,23 +173,30 @@ connectedAccountRouter.get('/google/connect', requireAuth, async (req: AuthReque
   }
 })
 
-connectedAccountRouter.get('/google/callback', async (req, res, next) => {
+connectedAccountRouter.get('/google/callback', async (req, res) => {
   let flow: string | null = null
+  // Callback is a browser redirect target: every failure must redirect to the
+  // matching frontend page (google-auth for login flows, google-connected for
+  // connect flows) instead of returning a raw JSON error body.
+  const errorRedirect = () => {
+    const page = flow === 'login' ? 'google-auth' : 'google-connected'
+    return res.redirect(`${env.FRONTEND_URL}/${page}?status=error`)
+  }
   try {
     const query = z.object({ code: z.string(), state: z.string() }).parse(req.query)
     const oauthState = await prisma.oauthState.findUniqueOrThrow({ where: { stateHash: hashToken(query.state) }, include: { providerConfig: true } })
     flow = oauthState.flow
-    if (oauthState.usedAt || oauthState.expiresAt < new Date()) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state expired.' })
+    if (oauthState.usedAt || oauthState.expiresAt < new Date()) return errorRedirect()
     const client = createOAuthClient(oauthState.providerConfig!)
     const tokenResult = await client.getToken(query.code)
     const tokens = tokenResult.tokens
-    if (!tokens.access_token) return res.status(400).json({ code: 'GOOGLE_OAUTH_FAILED', message: 'Google did not return required tokens.' })
+    if (!tokens.access_token) return errorRedirect()
     client.setCredentials(tokens)
     const oauth2 = google.oauth2({ version: 'v2', auth: client })
     const profile = await oauth2.userinfo.get()
     const providerAccountId = profile.data.id
     const email = profile.data.email
-    if (!providerAccountId || !email) return res.status(400).json({ code: 'GOOGLE_PROFILE_FAILED', message: 'Google profile missing id or email.' })
+    if (!providerAccountId || !email) return errorRedirect()
 
     if (oauthState.flow === 'login') {
       const result = await completeGoogleLoginFlow({
@@ -202,10 +209,10 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
       return res.redirect(result.redirectUrl)
     }
 
-    if (oauthState.flow !== 'connect' || !oauthState.userId) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state expired.' })
+    if (oauthState.flow !== 'connect' || !oauthState.userId) return errorRedirect()
     const existingAccount = await prisma.connectedAccount.findUnique({ where: { userId_provider_providerAccountId: { userId: oauthState.userId, provider: 'google_drive', providerAccountId } } })
     const refreshTokenEncrypted = tokens.refresh_token ? encryptText(tokens.refresh_token) : existingAccount?.refreshTokenEncrypted
-    if (!refreshTokenEncrypted) return res.status(400).json({ code: 'GOOGLE_OAUTH_FAILED', message: 'Google did not return required tokens.' })
+    if (!refreshTokenEncrypted) return errorRedirect()
 
     const account = await prisma.connectedAccount.upsert({
       where: { userId_provider_providerAccountId: { userId: oauthState.userId, provider: 'google_drive', providerAccountId } },
@@ -240,9 +247,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     return res.redirect(`${env.FRONTEND_URL}/google-connected?status=success`)
   } catch (error) {
     console.error('Google OAuth callback failed:', error)
-    // Login flows started from /auth land on the google-auth page; connect flows
-    // land on google-connected. Route the error to the matching frontend page.
-    return res.redirect(`${env.FRONTEND_URL}/${flow === 'login' ? 'google-auth' : 'google-connected'}?status=error`)
+    return errorRedirect()
   }
 })
 
