@@ -16,9 +16,10 @@ import { createAuditLog } from '../../utils/audit.js'
 import { expandFolderDescendants, resolveFileAccess } from '../invites/invite-access.js'
 
 /**
- * Ensure the requester can access (read at least) the file. Returns the file
- * (with its connected account) when allowed, otherwise responds 404 and
- * returns null. `minRole` enforces edit access for mutating endpoints.
+ * Ensure the requester can access (read at least) the file. Returns the
+ * effective access role ('owner' | 'viewer' | 'editor') when allowed, or null
+ * after responding 404/403. `minRole` enforces edit access for mutating
+ * endpoints. Callers re-fetch the file afterwards.
  */
 async function requireFileAccess(req: AuthRequest, res: ExpressResponse, fileId: string, minRole: 'viewer' | 'editor' = 'viewer') {
   const role = await resolveFileAccess(req.user!.id, fileId)

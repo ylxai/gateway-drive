@@ -87,47 +87,42 @@ function maxRole(roles: string[]): 'viewer' | 'editor' {
 }
 
 /**
- * Collect [folderId, parentId, grandparentId, ...] up to the root. The list is
- * used both for folder-invite matching and (indirectly) file access checks.
+ * Collect [folderId, parentId, grandparentId, ...] up to the root. A single
+ * recursive CTE replaces the previous per-level loop (avoids N+1 queries on
+ * deep folder trees). Used for folder-invite matching and file access checks.
  */
 async function resolveFolderChain(folderId: string | null): Promise<string[]> {
-  const chain: string[] = []
-  let currentId = folderId
-  let guard = 0
-  while (currentId && guard < 50) {
-    const folder = await prisma.folder.findFirst({
-      where: { id: currentId },
-      select: { parentId: true },
-    })
-    if (!folder) break
-    chain.push(currentId)
-    currentId = folder.parentId
-    guard += 1
-  }
-  return chain
+  if (!folderId) return []
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    WITH RECURSIVE chain AS (
+      SELECT id, parent_id FROM folders WHERE id = ${folderId}
+      UNION ALL
+      SELECT f.id, f.parent_id FROM folders f
+        JOIN chain c ON f.id = c.parent_id
+    )
+    SELECT id FROM chain WHERE id IS NOT NULL LIMIT 200
+  `
+  return rows.map((row) => row.id)
 }
 
 /**
  * Expand a set of folder ids to include every descendant folder id. Used so
  * the shared=1 file listing matches the folder-chain access resolution in
  * resolveFileAccess (a file inside a subfolder of an invited folder is
- * accessible, so it must appear in the listing too).
+ * accessible, so it must appear in the listing too). A single recursive CTE
+ * avoids the previous per-level loop (N+1 on deep trees).
  */
 export async function expandFolderDescendants(folderIds: string[]): Promise<string[]> {
   if (folderIds.length === 0) return []
-  const all = new Set(folderIds)
-  let changed = true
-  let guard = 0
-  while (changed && guard < 100) {
-    changed = false
-    const children = await prisma.folder.findMany({ where: { parentId: { in: [...all] }, deletedAt: null }, select: { id: true } })
-    for (const child of children) {
-      if (!all.has(child.id)) {
-        all.add(child.id)
-        changed = true
-      }
-    }
-    guard += 1
-  }
-  return [...all]
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    WITH RECURSIVE tree AS (
+      SELECT id FROM folders WHERE id = ANY(${folderIds}) AND deleted_at IS NULL
+      UNION ALL
+      SELECT f.id FROM folders f
+        JOIN tree t ON f.parent_id = t.id
+      WHERE f.deleted_at IS NULL
+    )
+    SELECT DISTINCT id FROM tree LIMIT 2000
+  `
+  return rows.map((row) => row.id)
 }

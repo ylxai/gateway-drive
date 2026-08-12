@@ -9,6 +9,10 @@ import type { AuthRequest } from './auth.middleware.js'
  * anonymous traffic (login/register, public routes).
  */
 function keyGenerator(req: Request): string {
+  // When auth middleware has already populated req.user, use it directly to
+  // avoid re-parsing/re-verifying the JWT on every request.
+  const authReq = req as AuthRequest
+  if (authReq.user?.id) return `user:${authReq.user.id}`
   const authHeader = req.headers.authorization
   if (authHeader?.startsWith('Bearer ')) {
     try {
@@ -18,9 +22,6 @@ function keyGenerator(req: Request): string {
       // Invalid/expired token → treat as anonymous
     }
   }
-  // Only reachable for authenticated requests once auth middleware has run.
-  const authReq = req as AuthRequest
-  if (authReq.user?.id) return `user:${authReq.user.id}`
   return `ip:${req.ip ?? 'unknown'}`
 }
 
