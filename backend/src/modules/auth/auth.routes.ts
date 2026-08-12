@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
+import { isAdmin } from '../../middleware/admin.middleware.js'
 import { hashPassword, verifyPassword } from '../../utils/password.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { signAccessToken } from '../../utils/jwt.js'
@@ -238,7 +239,7 @@ authRouter.post('/logout', requireAuth, async (req: AuthRequest, res, next) => {
 authRouter.get('/me', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { id: true, name: true, email: true, status: true } })
-    return res.json({ user })
+    return res.json({ user: { ...user, isAdmin: isAdmin(user.id) } })
   } catch (error) {
     return next(error)
   }
