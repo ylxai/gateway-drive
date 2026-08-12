@@ -111,7 +111,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     if (!contentType?.includes('multipart/form-data')) return res.status(400).json({ code: 'UPLOAD_INVALID_CONTENT_TYPE', message: 'multipart/form-data required.' })
 
     const busboy = Busboy({ headers: req.headers, limits: { files: 25, fileSize: env.MAX_UPLOAD_BYTES } })
-    const fields: { sizeBytes?: bigint; fileName?: string; mimeType?: string; folderId?: string } = {}
+    const fields: { sizeBytes?: bigint; fileName?: string; mimeType?: string; folderId?: string; targetAccountId?: string } = {}
     let batchMeta: UploadMeta[] | null = null
     let responded = false
     let fileSeen = false
@@ -165,7 +165,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         }
 
         const folderId = meta.folderId || null
-        let targetAccountId: string | undefined = undefined
+        let targetAccountId = fields.targetAccountId
         if (folderId) {
           const folderRecord = await prisma.folder.findFirstOrThrow({ where: { id: folderId, userId: req.user!.id, deletedAt: null } })
           if (folderRecord.connectedAccountId) {
@@ -267,6 +267,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
       if (name === 'fileName') fields.fileName = value
       if (name === 'mimeType') fields.mimeType = value
       if (name === 'folderId') fields.folderId = value
+      if (name === 'targetAccountId') fields.targetAccountId = value
       if (name === 'filesMeta') {
         const parsed = parseBatchMeta(value)
         if (parsed) batchMeta = parsed

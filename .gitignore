@@ -16,4 +16,3 @@ backend/.env.*.local
 frontend/.env.local
 frontend/.env.*.local
 .worktrees/
-.worktrees/
