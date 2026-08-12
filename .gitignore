@@ -16,6 +16,7 @@ backend/.env.*.local
 *.db-journal
 
 # Local env is non-secret by default, keep example in repo instead.
+frontend/.env
 frontend/.env.local
 frontend/.env.*.local
 .worktrees/
