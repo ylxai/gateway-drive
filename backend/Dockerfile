@@ -10,7 +10,7 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 
-RUN npm run build && npx prisma generate
+RUN npx prisma generate && npm run build
 
 EXPOSE 4000
 

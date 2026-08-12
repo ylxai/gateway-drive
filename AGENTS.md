@@ -91,7 +91,7 @@ Security rules:
 - Never log access tokens, refresh tokens, OAuth client secrets, JWT secrets, encryption keys, or raw public share tokens.
 - Google tokens are encrypted before database storage.
 - App refresh tokens are hashed before database storage.
-- Auth handoff, share, and preview tokens are stored as hashes where applicable.
+- Auth handoff and preview tokens are stored as hashes; share token values are encrypted at rest (AES-GCM) with a hash column for lookup — raw share tokens are only returned to the owner once at creation.
 - Uploaded files must stream through backend to Google Drive folder `9drive`; do not store uploaded files on disk.
 - Keep CORS restricted by `FRONTEND_URL`.
 - Keep auth/token storage behavior centralized; do not change without explicit reason.

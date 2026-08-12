@@ -481,7 +481,7 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
     const totalBytes = BigInt(match[3])
 
     if (!session.googleSessionUri || !session.targetConnectedAccountId) {
-      return res.status(400).json({ code: 'UNSUPPORTED_PROVIDER', message: 'Only Google Drive resumable uploads supported.' })
+      return res.status(400).json({ code: 'UNSUPPORTED_PROVIDER', message: 'Resumable chunk upload is only supported for Google Drive sessions. Other providers use the multipart upload endpoint.' })
     }
 
     const account = await prisma.connectedAccount.findFirstOrThrow({
