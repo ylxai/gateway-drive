@@ -119,6 +119,28 @@ async function selectAccount(userId: string, sizeBytes: bigint, reservedBytesByA
     })[0]?.account
 }
 
+async function syncQuotaAfterBatch(syncedAccounts: Map<string, string>) {
+  for (const [accountId, provider] of syncedAccounts) {
+    const attemptedAt = lastQuotaSyncAttemptAt.get(accountId) ?? 0
+    if (Date.now() - attemptedAt < 60_000) {
+      logUpload('quota sync skipped (fresh from pre-flight)', { accountId })
+      continue
+    }
+    try {
+      const account = await prisma.connectedAccount.findUnique({ where: { id: accountId }, include: { storageAccount: true } })
+      const lastSynced = account?.storageAccount?.lastSyncedAt?.getTime() ?? 0
+      if (Date.now() - lastSynced < 60_000) {
+        logUpload('quota sync skipped (recently synced)', { accountId })
+        continue
+      }
+      const sync = provider === 's3' ? syncS3Quota(accountId) : syncGoogleQuota(accountId)
+      await sync
+    } catch (err) {
+      logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' })
+    }
+  }
+}
+
 export async function handleUpload(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     // Phase timing: each later log reports cumulative ms since the request
@@ -313,29 +335,26 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
 
     busboy.on('finish', () => {
       if (!responded && !fileSeen) return fail(400, 'UPLOAD_FILE_REQUIRED', 'file field required.')
-      Promise.all(pendingUploads).then(async () => {
+      Promise.all(pendingUploads).then(() => {
         if (responded) return
         responded = true
         logUpload('response sent', { completed: completed.length, failed: failed.length, ms: Date.now() - requestStartedAt })
 
-        // Sync quotas once per account after batch completes (use the provider-appropriate sync).
-        // selectAccount already synced any stale account during pre-flight, so
-        // skip accounts whose quota was refreshed less than a minute ago to
-        // avoid hitting the provider API twice for the same account.
-        for (const [accountId, provider] of syncedAccounts) {
-          const account = await prisma.connectedAccount.findUnique({ where: { id: accountId }, include: { storageAccount: true } })
-          const lastSynced = account?.storageAccount?.lastSyncedAt?.getTime() ?? 0
-          if (Date.now() - lastSynced < 60_000) {
-            logUpload('quota sync skipped (fresh from pre-flight)', { accountId })
-            continue
-          }
-          const sync = provider === 's3' ? syncS3Quota(accountId) : syncGoogleQuota(accountId)
-          sync.catch((err) => logUpload('batch quota sync failed', { accountId, message: err instanceof Error ? err.message : 'Unknown error' }))
+        // Reply first — quota refresh below is bookkeeping and must not add
+        // latency to the upload response.
+        if (completed.length === 0) {
+          res.status(400).json({ code: failed[0]?.code ?? 'UPLOAD_FAILED', message: failed[0]?.message ?? 'Upload failed', failed })
+        } else if (!batchMeta && completed.length === 1 && failed.length === 0) {
+          res.status(201).json({ file: completed[0] })
+        } else {
+          res.status(201).json({ files: completed, failed })
         }
 
-        if (completed.length === 0) return res.status(400).json({ code: failed[0]?.code ?? 'UPLOAD_FAILED', message: failed[0]?.message ?? 'Upload failed', failed })
-        if (!batchMeta && completed.length === 1 && failed.length === 0) return res.status(201).json({ file: completed[0] })
-        return res.status(201).json({ files: completed, failed })
+        // Refresh quotas once per account in the background. selectAccount
+        // already synced any stale account during pre-flight, so accounts
+        // attempted within the last minute are skipped without an extra
+        // database round trip (the in-memory attempt map knows).
+        void syncQuotaAfterBatch(syncedAccounts)
       }).catch(next)
     })
 

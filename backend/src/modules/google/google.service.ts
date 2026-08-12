@@ -102,10 +102,22 @@ export function createOAuthClient(config: ProviderConfig) {
 
 const tokenRefreshLocks = new Map<string, Promise<{ accessToken: string; expiryDate: number } | null>>()
 
+// The provider config (client id/secret/redirect) rarely changes; cache it per
+// account so the upload path does not pay a database query on every call.
+const providerConfigCache = new Map<string, { config: ProviderConfig; expiresAt: number }>()
+const providerConfigCacheTtlMs = 5 * 60_000
+
 export async function getAuthedGoogleClient(account: ConnectedAccount) {
   if (!account.accessTokenEncrypted || !account.refreshTokenEncrypted || !account.tokenExpiresAt) throw new Error('Google account tokens are missing.')
   if (!account.providerConfigId) throw new Error('Google provider config is missing.')
-  const config = await prisma.providerConfig.findUniqueOrThrow({ where: { id: account.providerConfigId } })
+  const cachedConfig = providerConfigCache.get(account.id)
+  let config: ProviderConfig
+  if (cachedConfig && cachedConfig.expiresAt > Date.now()) {
+    config = cachedConfig.config
+  } else {
+    config = await prisma.providerConfig.findUniqueOrThrow({ where: { id: account.providerConfigId } })
+    providerConfigCache.set(account.id, { config, expiresAt: Date.now() + providerConfigCacheTtlMs })
+  }
   const client = createOAuthClient(config)
   client.setCredentials({
     access_token: decryptText(account.accessTokenEncrypted),
